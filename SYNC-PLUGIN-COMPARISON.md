@@ -65,6 +65,41 @@ More parallel downloads do not necessarily produce a smoother game. Downloads, d
 
 Transport compression and texture optimization also differ: lossless compression of a download stream saves bandwidth but does not by itself reduce the texture's GPU memory use. Texture compression, downscaling, and model simplification can reduce rendering costs and may affect appearance quality.
 
+## Optional plugin integrations
+
+The following are built-in integrations found in the inspected clients. **Yes** means the client implements an integration; it does not mean the companion plugin is installed, ready, or enabled in a player's configuration. **—** means no dedicated integration was found in these versions. Penumbra and Glamourer are required for appearance sync in all three and are excluded from this optional list.
+
+| Optional plugin / feature | What it adds | PlayerSync | Lightless Sync | Snowcloak |
+| --- | --- | --- | --- | --- |
+| Customize+ | Body scaling and customization. | Yes | Yes | Yes |
+| Simple Heels | Character height and position offsets. | Yes | Yes | Yes |
+| Honorific | Custom character titles. | Yes | Yes | Yes |
+| Pet Nicknames | Custom pet names. | Yes | Yes | Yes |
+| Brio | Actor spawning, transforms, and posing for GPose / character sharing. | Yes | Yes | Yes |
+| Moodles | Custom status effects. | Yes, alternative to Loci | Yes | Yes |
+| Loci | Custom status effects through the Loci API. | Yes, alternative to Moodles | — | — |
+| Lifestream | Travel and housing shortcuts. | Yes | Yes | — |
+| Stagehand | Shared scene objects and layouts. | Yes | — | — |
+| Pulsar | Shared Pulsar playback data and associated files. | — | Yes | — |
+| LivePose (Simple Heels) | Live pose sharing through Simple Heels; not a separate plugin install. | — | Yes | — |
+| Intoner | Shared object layouts. | — | Yes | — |
+
+Snowcloak also exposes a public companion-plugin API with per-plugin permissions and extension-data sharing. This allows additional plugins to integrate with Snowcloak, but the API's existence does not establish support for a particular named plugin such as Loci or Stagehand. Registered companion extensions are separate from the manager's built-in optional-plugin checks.
+
+### Why Loci may be absent from PlayerSync's native optional-plugin row
+
+PlayerSync **1.15.5.9** has an `IpcCallerLoci`, checks its API availability, and captures and applies Loci character data. Its installed assembly and public source agree on the native UI behavior:
+
+- Only Moodles reports available: the row displays **Moodles**, without mentioning Loci.
+- Only Loci reports available: the row displays **Loci**.
+- Both or neither report available: the row displays **Moodles / Loci**. Both available is flagged as unsupported; enable one at a time.
+
+The missing Loci name when Moodles is available is therefore an intentional conditional label in PlayerSync's own UI, rather than evidence that Loci is unsupported. PlayerSync's native optional row also omits **Lifestream**, despite implementing its IPC caller and travel helpers, so that row is not a complete integration inventory.
+
+XIV Sync Manager deliberately uses the stable **Moodles / Loci** label whenever that PlayerSync version exposes both callers, and explains which one is ready. It lists Lifestream separately. Older PlayerSync versions that do not expose a Loci caller will only show Moodles in the manager. If this installed version shows only Moodles in the manager itself, that differs from the current `dev` implementation and needs checking against the loaded manager build.
+
+Moodles and Loci are alternatives for the status-effect feature, but this does not promise data conversion between them. The inspected PlayerSync source explicitly disables the Moodles-to-Loci fallback, and no call to that conversion was found in the installed pair handler. Use the matching companion plugin when expecting another player's status-effect data.
+
 ## How the manager affects these tradeoffs
 
 ### Some guards remain active on loaded backups
@@ -94,11 +129,14 @@ There are no controlled comparative measurements of crash rates, frame times, se
 ## Sources
 
 - [PlayerSync client source](https://github.com/universalconquistador/MareSynchronosClient): protection, concurrency, companion integration, and profile behavior.
+- PlayerSync [integration inventory](https://github.com/universalconquistador/MareSynchronosClient/blob/main/PlayerSync/Interop/Ipc/IpcManager.cs), [native optional-plugin labels](https://github.com/universalconquistador/MareSynchronosClient/blob/main/PlayerSync/UI/UISharedService.cs), and [status-effect application](https://github.com/universalconquistador/MareSynchronosClient/blob/main/PlayerSync/PlayerData/Handlers/PairHandler.cs).
 - [PlayerSync animation bind guard](https://github.com/universalconquistador/MareSynchronosClient/blob/main/PlayerSync/Interop/AnimationBindGuard.cs) and [skeleton mapping fix](https://github.com/universalconquistador/MareSynchronosClient/blob/main/PlayerSync/Interop/SkeletonMappingFix.cs).
 - [PlayerSync file validation](https://github.com/universalconquistador/MareSynchronosClient/blob/main/PlayerSync.Validation/FileValidation.cs), [performance defaults](https://github.com/universalconquistador/MareSynchronosClient/blob/main/PlayerSync/MareConfiguration/Configurations/PlayerPerformanceConfig.cs), and [transfer controls](https://github.com/universalconquistador/MareSynchronosClient/blob/main/PlayerSync/UI/SettingsUi.Transfers.cs).
 - [PlayerSync performance guide](https://docs.playersync.io/docs/features?open=performance-auto-pausing) and [service website](https://www.playersync.io/): selectable texture alternatives and advertised regional file delivery.
 - [Lightless client source](https://git.lightless-sync.org/Lightless-Sync/LightlessClient) and [design document](https://git.lightless-sync.org/Lightless-Sync/LightlessClient/src/branch/master/DESIGN.md).
+- Lightless [integration inventory](https://git.lightless-sync.org/Lightless-Sync/LightlessClient/src/branch/master/LightlessSync/Interop/Ipc/IpcManager.cs) and [service registration, including Intoner](https://git.lightless-sync.org/Lightless-Sync/LightlessClient/src/branch/master/LightlessSync/PluginHostFactory.cs).
 - [Lightless transfer controls](https://git.lightless-sync.org/Lightless-Sync/LightlessClient/src/branch/master/LightlessSync/UI/Settings/Tabs/TransfersSettingsTab.cs), [performance defaults](https://git.lightless-sync.org/Lightless-Sync/LightlessClient/src/branch/master/LightlessSync/LightlessConfiguration/Configurations/PlayerPerformanceConfig.cs), and [skeleton guards](https://git.lightless-sync.org/Lightless-Sync/LightlessClient/src/branch/master/LightlessSync/Services/Animation/SkeletonMappingGuardService.cs).
 - [Snowcloak client source](https://github.com/Eauldane/SnowcloakClient), [crowd controller](https://github.com/Eauldane/SnowcloakClient/blob/main/Snowcloak/Services/Performance/CrowdPriorityController.cs), and [performance defaults](https://github.com/Eauldane/SnowcloakClient/blob/main/Snowcloak/Configuration/Configurations/PlayerPerformanceConfig.cs).
+- Snowcloak [built-in integration inventory](https://github.com/Eauldane/SnowcloakClient/blob/main/Snowcloak/Interop/Ipc/IpcManager.cs) and [public companion-plugin API](https://github.com/Eauldane/SnowcloakClient/blob/main/Snowcloak/Interop/Ipc/PublicIpcProvider.cs).
 - [Snowcloak performance guide](https://docs.snowcloak-sync.com/snowcloak-user-guide/settings-and-safety/), [pair permissions](https://docs.snowcloak-sync.com/snowcloak-user-guide/pairs-and-permissions/), and [companion integrations](https://docs.snowcloak-sync.com/snowcloak-user-guide/plugin-integrations/).
 - Local implementation: [configuration](src/Configuration.cs), [loading and saved-order repair](src/Plugin.cs), [selection rules](src/SyncModels.cs), and [pause/profile integration](src/Integrations/ReflectionSyncAdapter.cs).
