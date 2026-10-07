@@ -20,10 +20,10 @@
     "LoadPriority": 0,
     "Punchline": "Alpha test: manage overlapping syncs and pause individual players.",
     "AcceptsFeedback": true,
-    "IsHide": false,
-    "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/TexNevada/xiv-sync-manager/releases/download/v0.0.1.0/latest.zip",
     "DownloadLinkUpdate": "https://github.com/TexNevada/xiv-sync-manager/releases/download/v0.0.1.0/latest.zip",
-    "LastUpdate": 1791056699
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "LastUpdate": 1791407850
   }
 ]
