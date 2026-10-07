@@ -1,78 +1,152 @@
-> ⚠️ **Don't click Fork!**
-> 
-> This is a GitHub Template repo. If you want to use this for a plugin, [use this template][new-repo] to make a new repo!
->
-> ![image](https://github.com/goatcorp/SamplePlugin/assets/16760685/d9732094-e1ed-4769-a70b-58ed2b92580c)
+# XIV Sync Manager
 
-# SamplePlugin
+> **Alpha test release:** Features and sync integrations are still being validated in game.
 
-[![Use This Template badge](https://img.shields.io/badge/Use%20This%20Template-0?logo=github&labelColor=grey)][new-repo]
+A Dalamud plugin for managing characters synchronized through Lightless Sync, Snowcloak, and PlayerSync.
 
+See [FEATURES.md](FEATURES.md) for the bullet-point feature list.
 
-Simple example plugin for Dalamud.
+This plugin targets Dalamud API 15. The user reported the initial version working in game; the updated character cache and themed UI still need an in-game check. Compatibility depends on the installed sync plugins exposing the methods and properties used by the integrations.
 
-This is not designed to be the simplest possible example, but it is also not designed to cover everything you might want to do. For more detailed questions, come ask in [the Discord](https://discord.gg/holdshift).
+## Installing through Dalamud
 
-## Main Points
+The custom repository file is [pluginmaster.json](pluginmaster.json). These installation steps become available after that file is published to the `master` branch and its referenced release package is uploaded to GitHub.
 
-* Simple functional plugin
-  * Slash command
-  * Main UI
-  * Settings UI
-  * Image loading
-  * Plugin json
-* Simple, slightly-improved plugin configuration handling
-* Project organization
-  * Copies all necessary plugin files to the output directory
-    * Does not copy dependencies that are provided by dalamud
-    * Output directory can be zipped directly and have exactly what is required
-  * Hides data files from visual studio to reduce clutter
-    * Also allows having data files in different paths than VS would usually allow if done in the IDE directly
+1. Open `/xlsettings` and go to **Experimental > Custom Plugin Repositories**.
+2. Add this repository URL:
 
+   ```text
+   https://raw.githubusercontent.com/TexNevada/xiv-sync-manager/master/pluginmaster.json
+   ```
 
-The intention is less that any of this is used directly in other projects, and more to show how similar things can be done.
+3. Save the settings, open `/xlplugins`, and search for **XIV Sync Manager (Alpha)** to install it.
 
-## How To Use
+The JSON contains the plugin's metadata and installation/update ZIP URLs, following Dalamud's [custom repository format](https://dalamud.dev/plugin-publishing/custom-repositories/).
 
-### Getting Started
+## Using the manager
 
-To begin, [clone this template repository][new-repo] to your own GitHub account. This will automatically bring in everything you need to get a jumpstart on development. You do not need to fork this repository unless you intend to contribute modifications to it.
+Open `/syncmanager`. Priority and theme controls sit above the **Sync List** and **Statistics** tabs. The gear beside the title-bar controls opens settings. `/syncmanager config` and Dalamud's configuration button also open settings.
 
-Be sure to also check out the [Dalamud Developer Docs][dalamud-docs] for helpful information about building your own plugin. The Developer Docs includes helpful information about all sorts of things, including [how to submit][submit] your newly-created plugin to the official repository. Assuming you use this template repository, the provided project build configuration and license are already chosen to make everything a breeze.
+- **Duplicates only:** the window shows remembered characters identified through at least two different sync services. There is no pair list.
+- **Profiles (experimental):** each duplicate row has buttons for its known syncs: **L** = Lightless, **S** = Snowcloak, **P** = PlayerSync. Green means a profile is reported or profile data is cached. Orange with a pause icon means PlayerSync hides the profile because either side of the pair is paused. Gray buttons use different icons for not checked, no profile reported, and unavailable; hover for the full explanation. A paused last-known account may be shown with an explicit unverified-character explanation, without enabling character actions. Click a supported button to open that sync's original profile viewer, which may fetch the profile and images. PlayerSync supplies an explicit presence flag; Snowcloak and Lightless use existing cached data. An empty cache means **Not checked**, and cached data can be empty or stale. Buttons are disabled when the viewer or a currently identified pair is unavailable; Snowcloak also needs the character's current identifier. No profile downloads are started by automatic checks, and profile viewing leaves character pause and priority choices intact.
+- **Nearby / Online / Offline:** Nearby appears first and contains indexed duplicate characters currently in the game's player object table. Online contains the remaining characters an identified sync reports online or visible. Offline contains the rest and starts collapsed. Each character appears in one section. Each section's open/closed choice is saved across changing counts, logouts, and plugin reloads. A disconnected service cannot report online status, but a character in view can still appear in Nearby.
+- **Pause All / Resume** applies to one character across their identified syncs. Offline choices are saved and applied when that character can be identified again. Resume clears the character's manual pause choice and requests restoration of pauses owned by the manager. Automatic management then applies the preferred sync or priority order.
+- **Media…:** each character has separate **Pause / Resume Animations**, **Sounds**, and **VFX** buttons, for all identified syncs together or one plugin. Green means your restriction is off; red means it is on. Mixed selections are labeled. These are native, bidirectional permissions for synced mods; they do not mute all normal game audio or stop all game effects. The other player's restrictions are shown and cannot be removed by your Resume button. Choices are retained by the sync services, including after the manager closes. Only currently identified pairs on connected services are changed; disconnected services and future pairs are excluded.
+- **Media for all pairs:** opens the same controls for every account currently listed by connected sync services, including nonduplicates and offline accounts, either across all plugins or for one service. This changes individual pair permissions rather than syncshell defaults. Where supported, the native Sticky flag keeps individual choices from being replaced by syncshell defaults. Pending operations show **Updating…** and failures appear inside the media menu. These explicit media changes leave full-pair pauses and unrelated flags intact. Cache clearing does not undo saved native media permissions.
+- **Recent audio:** **Statistics** lists reported activity from the last 60 seconds for all pairs, with player names where verified, or native names/account labels otherwise, and a **Media…** shortcut. Duplicate rows also show recent activity beneath the name. Lightless supplies currently playing sound paths; playback seen by this manager is remembered in memory for up to 60 seconds. Load-only reports are labeled **Sound loaded**, including PlayerSync's sound-resource timestamp: a load does not prove the sound played. The supported Snowcloak version exposes no per-player audio activity. Companions can be included, and shared sound paths can make attribution ambiguous. There is no recording or audio playback interception.
+- **Preferred sync** always offers Lightless Sync, Snowcloak, and PlayerSync. It overrides the global priority when the selected sync is available for that character; otherwise, the manager falls back to priority. The choice is saved while offline, including before that character has been identified on the selected sync.
+- **Sync management** is an icon button: green **On**, red **Off**. It selects one available sync for each confidently identified character and requests pauses on the alternatives. It starts Off and respects existing external pauses and suspended routes.
+- **Automatic fallback:** if the selected sync stays disconnected for more than five seconds, the next connected, eligible sync for that character takes over, using the preferred sync and priority order. Brief disconnections keep the existing backup pauses. By default, a working fallback remains selected when the original service reconnects until the character leaves Nearby and returns.
+- **Keep fallback sync until player returns** is a saved setting, enabled by default. Turning it off returns to the preferred sync or highest eligible priority as soon as it becomes available. With it on, a fallback remains selected while eligible and appears as **Managed · fallback**. Leaving and returning is detected from the game's player object table, not the sync handler; moving out of view and back also triggers it. This integration does not observe a remote player's exact instance membership. Retained fallback selections last for the current manager session; explicit priority/preference changes, manual Pause/Resume, toggling the setting or management, clearing the cache, or reloading the manager reset them.
+- **Priority arrows** sit to the left of the service entries. Highest first; initially Lightless Sync, Snowcloak, then PlayerSync. Your order and each character's preferred sync are saved across logouts and plugin reloads and survive cache clearing. Online plugin names remain green in every theme.
+- **Connection buttons:** a WiFi button follows each plugin's priority arrows. Green WiFi means online; red WiFi with a slash means offline or unavailable. Clicking a supported green button disconnects that entire sync service for all paired players using its native saved connection pause. Clicking a supported red button resumes the service using its existing server and account setup. Hover for status, operation progress, errors, or an unsupported-control explanation. Unavailable or busy buttons open details. Plugins must already be loaded and configured; connection errors, maintenance, or account problems may prevent reconnection. Saved character pauses and automatic duplicate-selection rules continue to apply after reconnection, including the setting to retain a working fallback. Automatic management applies the usual five-second fallback delay after the service goes offline; turning the manager off or unloading it preserves your chosen service connection state.
+- **Plugin checks:** click the badge beside a sync's name to see its required plugins and optional extras. Red means required plugins need attention; amber means optional extras need attention; the green **Integrations** badge means all checked integrations are ready. Green badges are hidden by default. Gray means some checks are unavailable. Each entry explains what it adds, whether it is missing, disabled, needs an update, or is not ready, and how to resolve it. **Find** searches Dalamud's plugin installer; some plugins need a custom repository before they appear there. PlayerSync's Moodles and Loci are shown as alternatives: one is enough, and both ready together are flagged as a conflict. Connection status remains separate from these plugin checks.
+- **Tabs:** **Sync List** contains the existing search and Nearby / Online / Offline duplicate lists. **Statistics** shows estimated VRAM for each sync's visible paired players and **Total (sum)** in MiB or GiB. It includes all visible pairs and excludes your own character. Missing or pending estimates show **Unavailable** or **partial**; the total sums only available figures and is marked partial when any plugin or player data is missing. Unloaded or disconnected plugins show unavailable statistics. These are character-mod estimates: overlapping syncs and shared resources may be counted more than once, so the sum can differ from actual GPU memory use.
+- **Settings** contains the fallback setting, **Show integration info boxes** (On by default), **Hide green integration info boxes** (On by default), and **Clear cache**. Both display choices are saved across reloads. Clear cache removes indexed observations, cached duplicate characters, saved manual pause choices, suspended routes, and cached error/retry state. It preserves service priority, preferred sync choices, theme, section expansion choices, and settings. A red alpha-test warning appears below the button. Manager pauses are requested for restoration; pending requests and restoration records are retained until release is confirmed, including after disconnected services reconnect. Nearby duplicates may be indexed again on the next refresh.
+- **Search** filters by character or world.
+- **Theme** chooses among all twelve themes from the supplied ImGui styling. RoseQuartz is the default; the choice is saved. Older saved ForestGreen selections switch to RoseQuartz once on upgrade, while other saved themes are preserved. Styling is scoped to this plugin's window and restored after drawing.
 
-[new-repo]: https://github.com/new?template_name=SamplePlugin&template_owner=goatcorp
-[dalamud-docs]: https://dalamud.dev
-[submit]: https://dalamud.dev/plugin-publishing/submission
+If an older build reset your global priority after a reload, arrange it once after updating. The older build may already have saved the default order over your previous choice.
 
-### Prerequisites
+Existing pauses are left in place. Manage pauses made in the original sync plugin there. A character's manual pause choice takes precedence over automatic selection. **Needs attention** shows errors in a tooltip; **Retry** retries the saved choice and clears a suspension caused by external changes.
 
-SamplePlugin assumes all the following prerequisites are met:
+Available themes: DarkStyle, ForestGreen, Amethyst, Sapphire, AmberYellow, Dracula, CatppuccinMocha, GruvboxHard, CrimsonVesuvius, RoseQuartz, Cyberpunk, and PaperAndInk.
 
-* XIVLauncher, FINAL FANTASY XIV, and Dalamud have all been installed and the game has been run with Dalamud at least once.
-* XIVLauncher is installed to its default directories and configurations.
-  * If a custom path is required for Dalamud's dev directory, it must be set with the `DALAMUD_HOME` environment variable.
-* A .NET Core 8 SDK has been installed and configured, or is otherwise available. (In most cases, the IDE will take care of this.)
+With automatic management enabled, a selected service's disconnection starts a five-second grace period. After more than five seconds continuously unavailable, the manager requests restoration of the next eligible route's own pause or manager hold, including Snowcloak holds, while keeping existing backups paused. The timer resets when the service reconnects and uses elapsed time rather than the system clock. Checks normally run once per second, so the fallback request starts on the next check after the grace period expires; the sync plugin must then confirm restoration. Services that are unloaded or whose integration is unavailable are also treated as disconnected. If a character's route becomes unavailable while its service stays connected, the usual selection rules apply without this service-disconnection delay.
 
-### Building
+Existing manual pauses and suspended routes are preserved during fallback. If no eligible route exists, the manager releases its automatic pauses on reachable routes. Automatic fallback selects among services already connected; service reconnection is requested by clicking a red WiFi button or using the original plugin's controls. It waits for the selected route's pause or manager hold to clear before requesting new pauses on alternatives. After a pause is confirmed, it attempts to reapply cached appearance data from an eligible remaining visible route; it also attempts this for a restored visible route when the plugin exposes the required method. Explicit changes to the priority, preferred sync, or character pause choice apply without waiting for the disconnection grace period.
 
-1. Open up `SamplePlugin.sln` in your C# editor of choice (likely [Visual Studio](https://visualstudio.microsoft.com) or [JetBrains Rider](https://www.jetbrains.com/rider/)).
-2. Build the solution. By default, this will build a `Debug` build, but you can switch to `Release` in your IDE.
-3. The resulting plugin can be found at `SamplePlugin/bin/x64/Debug/SamplePlugin.dll` (or `Release` if appropriate.)
+## How the integrations work
 
-### Activating in-game
+| Plugin | Pause mechanism |
+| --- | --- |
+| Snowcloak | Local download and application holds using a dedicated `XIV Sync Manager` source, when the installed version provides those methods. |
+| Lightless Sync | Changes the pause flag through the plugin's existing server pair permissions request. |
+| PlayerSync | Changes the pause flag through the plugin's existing server pair permissions request. |
 
-1. Launch the game and use `/xlsettings` in chat or `xlsettings` in the Dalamud Console to open up the Dalamud settings.
-    * In here, go to `Experimental`, and add the full path to the `SamplePlugin.dll` to the list of Dev Plugin Locations.
-2. Next, use `/xlplugins` (chat) or `xlplugins` (console) to open up the Plugin Installer.
-    * In here, go to `Dev Tools > Installed Dev Plugins`, and the `SamplePlugin` should be visible. Enable it.
-3. You should now be able to use `/pmycommand` (chat) or `pmycommand` (console)!
+Snowcloak versions exposing editable pair permissions but lacking the local hold contract use server pair pauses instead.
 
-Note that you only need to add it to the Dev Plugin Locations once (Step 1); it is preserved afterwards. You can disable, enable, or load your plugin on startup through the Plugin Installer.
+Lightless and PlayerSync pauses can stop syncing in both directions. If the other player uses a manager with a different preferred service, there may be no common active route. Agree on a shared preferred service when using server pauses.
 
-### Reconfiguring for your own uses
+This implementation uses reflection to obtain each loaded plugin's service host, enumerate pairs, and invoke existing operations. It does not read authentication tokens or open its own sync-server connections. User-requested disconnections enable the plugin's native `FullPause` connection flag; reconnections clear it. Both actions update `UserRequestedFullPause` when the plugin exposes it, save through that plugin's server-configuration service, and invoke its asynchronous connection update. Offline reconnection uses the already selected server without requiring a connected account UID. The loaded plugin instance and selected server are checked before sending a request. It does not edit those configuration files directly. These connection controls were inspected in the installed Lightless Sync 3.3.0.0, Snowcloak 4.2.4.0, and PlayerSync/MareSempiterne 1.15.5.7 assemblies; runtime behavior still needs an in-game check. Missing connection controls disable the relevant button action while leaving compatible pair management available. Requests are tracked until completion and state confirmation, with errors surfaced after 20 seconds for disconnects or 30 seconds for reconnects. A still-running request blocks further connection changes to that service until it finishes. Detected pair-integration contract mismatches produce an integration error and disable management for the affected service. An online indicator confirms that enumeration succeeded; it does not verify download suppression or appearance restoration in game.
 
-Replace all references to `SamplePlugin` in all the files and filenames with your desired name, then start building the plugin of your dreams. You'll figure it out 😁
+Plugin checks read the sync's own `IpcManager` availability and, where exposed, its missing/disabled/version status. Penumbra and Glamourer are required in the inspected versions; known optional callers are listed only when that version exposes them. Checks also work while the loaded sync is disconnected. Installed or loaded alone does not mean an integration is ready. Unsupported checks show an unavailable status without interrupting compatible pair or connection management. These diagnostic contracts were inspected in the same installed versions listed above and still need an in-game check. The manager polls once per second, but a sync's own availability checks may refresh less often.
 
-Dalamud will load the JSON file (by default, `SamplePlugin/SamplePlugin.json`) next to your DLL and use it for metadata, including the description for your plugin in the Plugin Installer. Make sure to update this with information relevant to _your_ plugin!
+VRAM statistics sum native pair counters for pairs each plugin reports visible. Lightless uses `LastAppliedApproximateEffectiveVRAMBytes` when available, falling back to `LastAppliedApproximateVRAMBytes`. Snowcloak uses the applied counter, falling back to `LastReportedApproximateVRAMBytes`. PlayerSync uses the applied counter. Negative or unreadable values are unavailable rather than zero. A supported, connected plugin with no visible pairs reports zero. These counters and the relevant native display rules were inspected in the same installed versions; runtime behavior still needs an in-game check. Reading statistics does not request new analysis, downloads, or GPU measurements.
 
-All participation in this repository is governed by our [Code of Conduct](https://dalamud.dev/code-of-conduct). If you used AI tooling at any point, review the [AI Usage Policy](https://dalamud.dev/plugin-publishing/ai-policy) and disclose your level of AI use. Entirely AI-generated submissions will be rejected, and undisclosed AI use may result in a ban.
+Profile checks read PlayerSync's nullable pair/account presence flags, Lightless's existing user-profile cache through its native visibility filter, and Snowcloak's already-cached public or full profiles and public summaries matched to both character identifier and account UID. Snowcloak loading/error placeholders are not treated as confirmed profiles. The manager reads availability; profile contents are displayed by the native viewer with its access handling. Profile buttons invoke the registered native `IdDisplayHandler.OpenProfile(Pair)` for Lightless and PlayerSync, or `UidDisplayHandler.OpenProfile(Pair)` for Snowcloak, preserving native viewer preferences. Before opening, the manager verifies the current loaded plugin, connection scope, and pair instance. Opening errors are displayed separately from sync-management errors and can be retried by clicking again; loading errors after the viewer opens are handled by the original plugin. Profile status and opening failures remain in memory and are checked on the normal refresh cycle. The contracts were inspected in the same installed plugin versions; in-game profile status and viewer behavior still need confirmation.
+
+Media controls use each API's own `IsDisableAnimations` / `IsDisableSounds` / `IsDisableVFX` and corresponding setters, plus `UserSetPairPermissions`. Permission bit values differ between services, so the manager does not copy bit masks. Native request completion and resulting permissions are tracked separately from full-pair pauses; running media requests block conflicting pause changes for that pair. Lightless audio uses the read-only `GetDisplayRuntimeState(false, true)` snapshot with native handler lease management; PlayerSync reads `LastLoadedSoundSinceRedraw`. These contracts were inspected in the installed versions listed above; media persistence, bidirectional behavior, playback attribution, and paused-profile indicators still need an in-game check.
+
+Implementation references in this repository:
+
+- [Sync integrations](src/Integrations/ReflectionSyncAdapter.cs): plugin detection, pair snapshots, local holds, and permission requests.
+- [Plugin checks](src/Integrations/IntegrationDiagnostics.cs): required and optional integration availability from each sync's own services.
+- [VRAM statistics](src/Integrations/VramDiagnostics.cs): native visible-player estimates and partial-data handling.
+- [Profiles](src/Integrations/ProfileIntegration.cs): passive profile indicators, paused states, and native viewer controls.
+- [Audio activity](src/Integrations/AudioDiagnostics.cs): native playback and resource-load snapshots.
+- [Media controls](src/SyncCoordinator.Media.cs): queued native permission changes, restoration tracking, and recent playback history.
+- [Coordinator](src/SyncCoordinator.cs): character identification, duplicate history, pause requests, and restoration.
+- [Selection rules](src/SyncModels.cs): preferred syncs, priority, and fallback selection.
+- [Main window](src/Windows/MainWindow.cs), [settings](src/Windows/SettingsWindow.cs), and [themes](src/ThemeCatalog.cs): current controls and styling.
+
+## Identity and restoration
+
+Pairs are matched to a live player object and identified by character name plus home world. The manager remembers the service-specific character identity observed for that pair and can use that association while the same character remains online out of view. It does not compare service UIDs, aliases, or display names alone to decide that two pairs represent one character. Unidentified characters are never automatically merged.
+
+The duplicate cache is stored in the manager's own Dalamud configuration. Known characters remain listed across logouts, service disconnections, and plugin reloads. Existing verified observations populate the cache when upgrading. If a route identifies a different character, its cached association is updated; a character can disappear from the duplicate list if its remaining cached routes cover fewer than two services. A cached entry alone never authorizes a character pause or character media action on an unidentified route; these actions require a live verified association, a matching service character identifier, or an existing manager restoration record. The explicit global media menu targets native pair accounts directly and does not require character matching.
+
+Character pause choices and preferred syncs are stored by character name plus home world. Legacy individual choices and restoration records are scoped to the service, server URI, local account UID, and remote pair UID. The manager saves a restoration record before sending a pause request and waits for the plugin's resulting state to confirm it. Operation errors are logged and appear under **Needs attention** when the affected pair is associated with a listed duplicate character. Records for missing pairs appear in the saved-pause reconnection count.
+
+Failed operations normally wait 30 seconds before retrying. **Retry** clears that delay and the route's suspension. A request that is still running blocks further changes to that pair until it finishes. Restoration records and choices persist across reloads; error messages and retry delays are held in memory.
+
+Turning automatic management off requests restoration of automatic pauses while retaining manual character choices. Unloading the manager attempts to release its local holds and restore its server pauses. If cleanup fails, a service is unavailable, or a request is unfinished, its restoration record is retained. Reloading the manager retries restoration when that same service/account is connected. Saved manual choices are reapplied after recovery when the character can be identified.
+
+For automatic and full-pair server pause requests, only the pause flag is changed; other permissions are preserved. Explicit media requests change the selected media flag and, where available, Sticky. If a media change is requested while the manager owns a server pause, both the current and original restoration fingerprints are tracked so releasing that pause retains the media choice. Pending alternatives are saved before sending and reconciled after confirmation or reload. If those permissions or pause reasons change in the original plugin, the manager relinquishes ownership and suspends further changes for that pair until **Retry** or a new explicit Pause choice. Snowcloak's local holds are released using only the manager's dedicated source, preserving holds from other sources. A second manual pause that leaves exactly the same permission value and reason is not distinguishable from the manager's own server pause; fully independent pause ownership would require support from the sync plugin maintainers.
+
+Duplicate detection is normally polled once per second; a changed choice can request an earlier refresh. During normal operation, at most eight combined pause/restoration and media operations await confirmation at a time. Global media batches are queued within that limit; media failures are not automatically retried. Shutdown cleanup can exceed that limit. Initial or already running downloads may occur before suppression. This plugin does not deduplicate files across caches or guarantee that no duplicate bytes are transferred.
+
+## Framework update performance
+
+Sync refreshes start about once per second and spread pair reads and management steps across framework frames, targeting a 2 ms work budget per frame with at most 32 steps. A completed pair list replaces the previous list after all services have been read; changing settings or clearing the cache cancels the current refresh and starts a new one. Large pair lists can take longer to refresh. Game objects and native sync-plugin calls stay on the framework thread.
+
+Reflection member and method lookups are cached by runtime type, including missing members, and permission contracts are validated once per type for each loaded sync instance. Duplicate history is rebuilt when character observations change rather than on every refresh. These changes reduce repeated reflection work and the single-frame bursts that can cause microstutters.
+
+The budget is cooperative: an individual native call, diagnostics pass, or configuration save can exceed it. In-game verification is still needed. After loading the rebuilt DLL, compare movement in the same busy area with the manager enabled and disabled, and check the Dalamud log for new `XivSyncManager.SyncCoordinator::Update` hitch warnings.
+
+## Building and loading
+
+Requirements: .NET 10 SDK, Dalamud API 15 development assemblies, and XIVLauncher. The Dalamud SDK uses XIVLauncher's default development directory; set `DALAMUD_HOME` to select a different directory.
+
+```sh
+dotnet build XivSyncManager.slnx -c Release
+```
+
+The DLL is `src/bin/x64/Release/XivSyncManager.dll`. Keep the generated `XivSyncManager.json` beside it. Load it using Dalamud's [development plugin workflow](https://github.com/goatcorp/SamplePlugin#activating-in-game):
+
+1. Open `/xlsettings`, select **Experimental**, and add the DLL path under **Dev Plugin Locations**.
+2. Open `/xlplugins`, select **Dev Tools > Installed Dev Plugins**, and enable **XIV Sync Manager (Alpha)**.
+3. Open `/syncmanager` and confirm the installed services show a connected integration.
+4. Exercise a character pause and resume before enabling automatic management.
+
+## Publishing the installer package
+
+The repository entry currently targets version `0.0.1.0` and release tag `v0.0.1.0`.
+
+1. Build the release using the command above.
+2. Publish `pluginmaster.json` to this repository's `master` branch.
+3. Create a public GitHub release tagged `v0.0.1.0` and upload `src/bin/x64/Release/XivSyncManager/latest.zip` as the asset named **latest.zip**.
+
+For subsequent releases, update the project version, rebuild, and update `AssemblyVersion`, `DownloadLinkInstall`, `DownloadLinkUpdate`, and `LastUpdate` in `pluginmaster.json`. The version must match the generated plugin manifest; `LastUpdate` is the release time in Unix seconds. Each entry uses a version-specific download URL so it continues to point to its matching package.
+
+## In-game verification still required
+
+Confirm orange PlayerSync profiles for pauses on either side, and the return of the normal profile state after resuming. Check animation/sound/VFX controls per character, per service, and globally, including mixed states, the other player's restrictions, paused backup routes, syncshell-only pairs, reloads, disconnected services, request failures, and pending cache clearing. Media choices should survive releasing manager pauses. Compare Lightless playback and PlayerSync load-only labels with their native UI; shared sound paths and companion sounds need particular attention.
+
+Click each service's green WiFi button and confirm the entire service disconnects, stays disconnected through automatic retries, and turns red with a slash. Click its red button and confirm it reconnects using the existing server/account setup and turns green after connection succeeds. Check pending/error tooltips, repeated clicks, five-second fallback, manual character pauses, unavailable plugins, maintenance/authentication failures, and both fallback-setting choices after reconnection. Also check unloading the manager while a connection request is running.
+
+Check a character shared by two or all three services, switching the preferred sync and priority arrows, disconnecting that service for less than and more than five seconds, pre-existing manual pauses, changing permissions in the original plugin, unloading/reloading the manager, and reconnecting after an interrupted pause. Confirm that a brief outage keeps backups paused and a longer outage resumes the next eligible sync (including a manager-held Snowcloak route). With the fallback setting on, confirm service reconnection keeps the working fallback and a character leaving Nearby and returning restores the preferred sync or priority order; with it off, confirm service reconnection immediately reapplies preference/priority. Confirm that cached characters move between Nearby, Online, and Offline, Offline initially starts collapsed, section choices survive count changes and reloads, offline Pause/Resume choices survive reloads, all twelve themes draw correctly, and other plugin windows retain their own styling. Check the red/green management button, settings gear, cache clearing with pauses pending or disconnected, and priority/preferred-sync persistence after clearing and reloading. Confirm both the network transfer behavior and the remaining character appearance.
+
+## License
+
+The repository's [LICENSE.md](LICENSE.md) contains the GNU Affero General Public License, version 3. See the [AI Declaration](AI-DECLARATION.md) for how AI tools may contribute to development. Any submission to Dalamud's official repository must follow its [AI usage policy](https://dalamud.dev/plugin-publishing/ai-policy).

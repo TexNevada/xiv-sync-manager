@@ -1,0 +1,87 @@
+# Features
+
+- Supports Lightless Sync, Snowcloak, and PlayerSync.
+- Detects duplicate syncs using verified character name and home-world identity.
+- Shows duplicate characters only; no full pair list.
+- Remembers indexed duplicates when they go offline or a sync disconnects.
+- **Nearby:** shows indexed duplicates currently in view.
+- **Online:** shows other indexed duplicates reported online by their syncs.
+- **Offline:** shows remaining indexed duplicates and starts closed.
+- Saves each section's open/closed state across logouts and plugin reloads.
+- Searches characters by name or world.
+- Adds experimental **Profiles** buttons for known syncs in each duplicate row: **L** Lightless, **S** Snowcloak, **P** PlayerSync.
+- Shows green profile buttons for reported or cached profiles and gray icons for unknown, explicitly absent, or unavailable profiles; hover explains each state.
+- Shows an orange paused-profile icon when either side of a PlayerSync pair is paused; explains why the profile cannot open.
+- Shows a last-known paused account's profile state without using an unverified character association for actions.
+- Reads PlayerSync's nullable profile-presence flags, Lightless's existing cache with its visibility filter, and Snowcloak's already-cached public/full profiles or public summaries.
+- Preserves **Not checked** for an empty cache and explains that cached profiles may be empty or stale.
+- Opens each sync's own profile viewer on click, allowing the original plugin to load the profile and images.
+- Automatic profile checks use existing data without starting profile downloads or changing pause and priority choices.
+- Disables profile opening without a supported viewer or identified live pair; Snowcloak also requires the current character identifier.
+- Shows profile-opening errors separately from sync-management errors and checks the loaded plugin, connection, and pair before opening.
+- **Sync management button:** green for On, red for Off, with a sync icon; starts Off.
+- Automatic management keeps one eligible sync active and pauses alternatives.
+- Reorders global sync priority using arrows beside the plugin status entries.
+- Saves global priority and each character's preferred sync across reloads.
+- Offers all three plugins in every character's preferred-sync dropdown.
+- Shows green WiFi status buttons for online plugins and red WiFi buttons with a slash for offline plugins, after the priority arrows.
+- Clicking a supported online WiFi button disconnects that sync service for all paired players using its saved native connection pause.
+- Clicking a supported offline WiFi button resumes the loaded sync plugin using its existing server and account setup.
+- Shows connection progress, errors, and unsupported-control explanations; prevents repeated requests while a connection change is running.
+- Hovering a WiFi button shows connection details; clicking an unavailable or busy button opens those details.
+- Shows a clickable plugin-check badge beside each sync: red for required problems, amber for optional extras needing attention, green **Integrations** when all checked integrations are ready, and gray when checks are unavailable.
+- Shows integration info boxes by default, with green boxes hidden by default; both settings are saved across reloads.
+- Separates required plugins from optional features and explains what each adds, its status, and how to fix missing, disabled, incompatible, or unready integrations.
+- Reads each loaded sync's own integration availability, including while disconnected; only lists known optional integrations exposed by that version.
+- Treats PlayerSync's Moodles and Loci as alternatives and explains the conflict when both report ready.
+- Provides Find buttons that search Dalamud's plugin installer and updates plugin checks automatically.
+- Adds **Sync List** and **Statistics** tabs below the theme selector.
+- Keeps search and Nearby / Online / Offline duplicate lists in **Sync List**.
+- Shows visible paired players' estimated VRAM for Lightless Sync, Snowcloak, and PlayerSync in **Statistics**, including all visible pairs.
+- Uses Lightless's optimized estimates where available, Snowcloak's applied or reported estimates, and PlayerSync's applied estimates.
+- Shows **Total (sum)** in MiB or GiB and marks unavailable or incomplete reports clearly.
+- Updates statistics automatically; excludes your own character and explains possible double counting of overlapping syncs and shared resources.
+- Service reconnection keeps saved character pauses and automatic duplicate-selection rules in effect.
+- Automatic management can select a fallback after its five-second grace period.
+- Keeps online plugin names green in every theme.
+- Waits more than five seconds before replacing a disconnected active sync.
+- Keeps existing backup pauses through brief disconnections.
+- Selects an eligible connected fallback using the preferred sync and priority order.
+- **Keep fallback sync until player returns:** enabled by default; avoids switching back when a service reconnects.
+- Detects a character leaving Nearby and returning, then uses their preferred sync or priority again.
+- Allows disabling that fallback setting to return to the preferred sync as soon as it is available.
+- Labels a retained fallback as **Managed · fallback**.
+- **Pause All / Resume:** controls one character across all identified syncs.
+- **Media…:** pauses or resumes synced animation, sound, and VFX mods for one character across identified syncs or per plugin.
+- **Media for all pairs:** applies media choices to all listed accounts on connected sync services or one service, including currently offline accounts.
+- Media restrictions affect both directions, preserve unrelated permission bits and full-pair pauses, and show restrictions set by the other player.
+- Native sync services retain media choices; disconnected services and future pairs are excluded from each action.
+- Changes individual media permissions rather than syncshell defaults; sets the native Sticky flag where supported.
+- Queues media batches within the shared request limit and waits for native confirmation; shows pending changes and separate media errors.
+- Updates saved pause restoration records so resuming or unloading the manager preserves explicit media choices.
+- **Recent audio:** shows the last 60 seconds of reported activity in Statistics, including pairs absent from the duplicate list, with a Media shortcut.
+- Shows Lightless's currently playing sound paths and remembers observed playback for up to 60 seconds during the current session.
+- Labels PlayerSync sound-resource loads separately because loading does not confirm playback; Lightless load-only reports also say Sound loaded.
+- Shows recent audio under duplicate character names; explains that companions and shared sound paths can affect attribution.
+- Reports unsupported Snowcloak audio activity and changed audio contracts without interrupting sync management.
+- Saves manual character pause choices while offline; manual pauses override automatic management.
+- Preserves existing external pauses and unrelated pair permissions.
+- Uses local download/application holds for supported Snowcloak versions.
+- Uses server pair-permission pauses for Lightless Sync, PlayerSync, and compatible older Snowcloak versions.
+- Attempts to reapply cached appearance data after pause/restoration when supported.
+- Shows operation progress, errors, and **Needs attention** with a Retry button.
+- Saves pause-restoration records and retries unfinished restoration after reconnection or reload.
+- Turning management Off releases automatic pauses while preserving manual choices.
+- Attempts to restore manager pauses when the plugin unloads.
+- **Settings gear:** opens settings beside the main window's title-bar controls.
+- **Clear cache:** removes indexed characters, observations, saved manual pauses, and cached error/retry state.
+- Cache clearing preserves priorities, preferred syncs, theme, section states, and settings; requests restoration of manager pauses.
+- Shows a red alpha-test warning below the cache-clear button.
+- Provides twelve themes: DarkStyle, ForestGreen, Amethyst, Sapphire, AmberYellow, Dracula, CatppuccinMocha, GruvboxHard, CrimsonVesuvius, RoseQuartz, Cyberpunk, and PaperAndInk.
+- Uses RoseQuartz by default and saves the selected theme.
+- Applies styling only to this plugin's windows.
+- Checks plugin connections and player sync states automatically once per second.
+- Spreads refresh work across framework frames with a cooperative 2 ms budget and caches reflection lookups to reduce refresh hitches.
+- Opens the main window with `/syncmanager` and settings with `/syncmanager config`.
+- Provides a custom Dalamud repository manifest and release ZIP packaging for publishing.
+- Labels the plugin as an alpha test release.

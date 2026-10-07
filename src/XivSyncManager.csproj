@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.0.1.0</Version>
+    <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
+    <Author>XIV Sync Manager contributors</Author>
+    <Name>XIV Sync Manager (Alpha)</Name>
+    <Punchline>Alpha test: manage overlapping syncs and pause individual players.</Punchline>
+    <Description>Alpha test release for in-game evaluation. Remember duplicate characters across Lightless Sync, Snowcloak, and PlayerSync. Pause individual characters, reorder service priority, and choose from twelve themes in one window.</Description>
+    <Tags>sync;mods;management;alpha</Tags>
+    <RepoUrl>https://github.com/TexNevada/xiv-sync-manager</RepoUrl>
+  </PropertyGroup>
+
+</Project>
