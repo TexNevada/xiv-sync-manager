@@ -8,6 +8,9 @@ namespace XivSyncManager;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
+    internal static IReadOnlyList<SyncProvider> DefaultPriority { get; } =
+        [SyncProvider.PlayerSync, SyncProvider.Lightless, SyncProvider.Snowcloak];
+
     public int Version { get; set; } = 3;
     public SyncTheme Theme { get; set; } = SyncTheme.RoseQuartz;
     public bool AutomaticManagement { get; set; }
@@ -22,7 +25,7 @@ public sealed class Configuration : IPluginConfiguration
     };
     // Replace defaults on load: reusing this list would append the saved order after the defaults.
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
-    public List<SyncProvider> Priority { get; set; } = [SyncProvider.Lightless, SyncProvider.Snowcloak, SyncProvider.PlayerSync];
+    public List<SyncProvider> Priority { get; set; } = [.. DefaultPriority];
     public Dictionary<string, SyncProvider> PreferredProviders { get; set; } = new(StringComparer.Ordinal);
     public HashSet<string> ManualPauses { get; set; } = new(StringComparer.Ordinal);
     public HashSet<string> AutomaticExceptions { get; set; } = new(StringComparer.Ordinal);

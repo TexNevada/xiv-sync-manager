@@ -22,6 +22,7 @@
 - **Sync management button:** green for On, red for Off, with a sync icon; starts Off.
 - Automatic management keeps one eligible sync active and pauses alternatives.
 - Reorders global sync priority using arrows beside the plugin status entries.
+- Defaults to PlayerSync, Lightless Sync, then Snowcloak for new configurations; preserves existing saved orders. See [the comparison and rationale](SYNC-PLUGIN-COMPARISON.md).
 - Saves global priority and each character's preferred sync across reloads.
 - Offers all three plugins in every character's preferred-sync dropdown.
 - Shows green WiFi status buttons for online plugins and red WiFi buttons with a slash for offline plugins, after the priority arrows.

@@ -43,7 +43,7 @@ public sealed class Plugin : IAsyncDalamudPlugin
             || (Configuration.Version < 3 && Configuration.Theme == SyncTheme.ForestGreen))
             Configuration.Theme = SyncTheme.RoseQuartz;
         Configuration.Version = 3;
-        foreach (var provider in Enum.GetValues<SyncProvider>())
+        foreach (var provider in XivSyncManager.Configuration.DefaultPriority)
             if (!Configuration.Priority.Contains(provider)) Configuration.Priority.Add(provider);
 
         Coordinator = new(Configuration);
