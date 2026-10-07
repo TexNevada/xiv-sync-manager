@@ -8,6 +8,7 @@ using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
+using Dalamud.Utility;
 
 namespace XivSyncManager.Windows;
 
@@ -256,7 +257,7 @@ public sealed partial class MainWindow : Window
             }
         }
         ImGui.Separator();
-        ImGui.TextWrapped("Install, enable, or update plugins in Dalamud. Some extras need their own custom repository. Checks update automatically; this sync may take a few seconds to notice changes.");
+        ImGui.TextWrapped("Project opens the plugin's project and documentation. Copy repo URL copies its installation feed: add it in /xlsettings > Experimental > Custom Plugin Repositories and save, then use Find to search All Plugins. Checks update automatically; this sync may take a few seconds to notice changes.");
         if (ImGui.Button("Open plugin installer"))
             Plugin.PluginInterface.OpenPluginInstallerTo(PluginInstallerOpenKind.AllPlugins);
         ImGui.PopTextWrapPos();
@@ -279,16 +280,37 @@ public sealed partial class MainWindow : Window
             ImGui.TextUnformatted(integration.Name);
             ImGui.SameLine();
             ImGui.TextColored(colour, integration.StatusLabel);
-            if (integration.State != IntegrationState.Ready)
-            {
-                ImGui.SameLine();
-                if (ImGui.SmallButton("Find"))
-                    Plugin.PluginInterface.OpenPluginInstallerTo(PluginInstallerOpenKind.AllPlugins, integration.SearchTerm);
-                Tooltip("Open the Dalamud plugin installer. This does not install anything automatically.");
-            }
             ImGui.TextWrapped(integration.Feature);
             if (integration.State != IntegrationState.Ready || integration.Name == "Moodles / Loci")
                 ImGui.TextWrapped(integration.Explanation);
+            foreach (var resource in integration.Resources)
+            {
+                using var resourceId = ImRaii.PushId(resource.Name);
+                if (integration.Resources.Count > 1)
+                {
+                    ImGui.TextUnformatted(resource.Name);
+                    ImGui.SameLine();
+                }
+                if (ImGui.SmallButton("Project"))
+                    Util.OpenLink(resource.ProjectUrl);
+                Tooltip($"Open {resource.Name}'s project and documentation in your browser.\n{resource.ProjectUrl}");
+                if (resource.RepositoryUrl != null)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Copy repo URL"))
+                        ImGui.SetClipboardText(resource.RepositoryUrl);
+                    Tooltip($"Copy the custom repository URL for /xlsettings > Experimental > Custom Plugin Repositories. Add it and save before searching the installer.\n{resource.RepositoryUrl}");
+                }
+                if (integration.State != IntegrationState.Ready)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Find"))
+                        Plugin.PluginInterface.OpenPluginInstallerTo(PluginInstallerOpenKind.AllPlugins, resource.SearchTerm);
+                    Tooltip($"Search All Plugins for {resource.SearchTerm}. This does not install anything automatically.");
+                }
+                if (resource.RepositoryUrl == null)
+                    ImGui.TextWrapped("Available in Dalamud's official plugin repository.");
+            }
             ImGui.Spacing();
         }
     }

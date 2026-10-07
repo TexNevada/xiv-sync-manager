@@ -10,24 +10,43 @@ internal static class IntegrationDiagnostics
     // Required roles and optional callers were inspected in the supported installed plugins.
     // Only advertise optional callers actually exposed by this version's IpcManager.
     private sealed record Definition(string Property, string Name, string InternalName, string Feature,
-        bool Required = false, string? SearchTerm = null);
+        string ProjectUrl, string? RepositoryUrl = null, bool Required = false, string? SearchTerm = null)
+    {
+        internal IntegrationResource Resource => new(Name, ProjectUrl, RepositoryUrl, SearchTerm ?? Name);
+    }
+
+    private const string SeaOfStarsRepository = "https://raw.githubusercontent.com/Ottermandias/SeaOfStars/main/repo.json";
 
     private static readonly Definition[] Definitions =
     [
-        new("Penumbra", "Penumbra", "Penumbra", "Loads shared character mods.", true),
-        new("Glamourer", "Glamourer", "Glamourer", "Applies shared appearance and equipment.", true),
-        new("Heels", "Simple Heels", "SimpleHeels", "Shares character height and position offsets.", SearchTerm: "Simple Heels"),
-        new("CustomizePlus", "Customize+", "CustomizePlus", "Shares body scaling and customization."),
-        new("Honorific", "Honorific", "Honorific", "Shares custom character titles."),
-        new("Moodles", "Moodles", "Moodles", "Shares custom status effects."),
-        new("PetNames", "Pet Nicknames", "PetRenamer", "Shares custom pet names.", SearchTerm: "Pet"),
-        new("Brio", "Brio", "Brio", "Adds character spawning and posing for GPose features."),
-        new("Pulsar", "Pulsar", "Pulsar", "Adds shared Pulsar character data."),
-        new("LivePose", "LivePose (Simple Heels)", "SimpleHeels", "Adds live pose sharing through Simple Heels.", SearchTerm: "Simple Heels"),
-        new("Lifestream", "Lifestream", "Lifestream", "Adds travel and housing shortcuts."),
-        new("Stagehand", "Stagehand", "Stagehand", "Adds shared scene objects and layouts."),
-        new("Intoner", "Intoner", "Intoner", "Adds Intoner features supported by this sync."),
-        new("Loci", "Loci", "Loci", "Shares custom status effects."),
+        new("Penumbra", "Penumbra", "Penumbra", "Loads shared character mods.",
+            "https://github.com/xivdev/Penumbra", SeaOfStarsRepository, Required: true),
+        new("Glamourer", "Glamourer", "Glamourer", "Applies shared appearance and equipment.",
+            "https://github.com/Ottermandias/Glamourer", SeaOfStarsRepository, Required: true),
+        new("Heels", "Simple Heels", "SimpleHeels", "Shares character height and position offsets.",
+            "https://github.com/Caraxi/SimpleHeels", SeaOfStarsRepository, SearchTerm: "Simple Heels"),
+        new("CustomizePlus", "Customize+", "CustomizePlus", "Shares body scaling and customization.",
+            "https://github.com/Aether-Tools/CustomizePlus", SeaOfStarsRepository),
+        new("Honorific", "Honorific", "Honorific", "Shares custom character titles.",
+            "https://github.com/Caraxi/Honorific"),
+        new("Moodles", "Moodles", "Moodles", "Shares custom status effects.",
+            "https://github.com/kawaii/Moodles", SeaOfStarsRepository),
+        new("PetNames", "Pet Nicknames", "PetRenamer", "Shares custom pet names.",
+            "https://github.com/Glyceri/FFXIVPetRenamer", SearchTerm: "Pet Nicknames"),
+        new("Brio", "Brio", "Brio", "Adds character spawning and posing for GPose features.",
+            "https://github.com/Etheirys/Brio", SeaOfStarsRepository),
+        new("Pulsar", "Pulsar", "Pulsar", "Shares music files and synchronized playback through Lightless.",
+            "https://github.com/Drovolon/Pulsar", "https://raw.githubusercontent.com/Drovolon/Pulsar/repo/repo.json"),
+        new("LivePose", "LivePose (Simple Heels)", "SimpleHeels", "Adds live pose sharing through Simple Heels; no separate plugin is needed.",
+            "https://github.com/Caraxi/SimpleHeels", SeaOfStarsRepository, SearchTerm: "Simple Heels"),
+        new("Lifestream", "Lifestream", "Lifestream", "Adds travel and housing shortcuts.",
+            "https://github.com/NightmareXIV/Lifestream", "https://github.com/NightmareXIV/MyDalamudPlugins/raw/main/pluginmaster.json"),
+        new("Stagehand", "Stagehand", "Stagehand", "Adds shared scene objects and layouts.",
+            "https://github.com/universalconquistador/Stagehand", "https://github.com/universalconquistador/Stagehand/releases/latest/download/repo.json"),
+        new("Intoner", "Intoner", "Intoner", "Shares saved furniture, object, VFX, and lighting layouts through Lightless.",
+            "https://github.com/Abelfreyja/Intoner", "https://raw.githubusercontent.com/Abelfreyja/Intoner/repo/repo.json"),
+        new("Loci", "Loci", "Loci", "Shares custom status effects.",
+            "https://github.com/CordeliaMist/Loci", "https://raw.githubusercontent.com/CordeliaMist/Loci/main/repo.json"),
     ];
 
     internal static IntegrationReport Read(object plugin, SyncProvider provider, IReadOnlyList<IExposedPlugin> installed)
@@ -108,12 +127,18 @@ internal static class IntegrationDiagnostics
         };
 
         PluginIntegration Result(IntegrationState value, string explanation) => new(definition.Name, definition.Required,
-            definition.Feature, value, explanation, exposed?.Name ?? definition.SearchTerm ?? definition.Name);
+            definition.Feature, value, explanation, exposed?.Name ?? definition.SearchTerm ?? definition.Name)
+        {
+            Resources = [definition.Resource with { SearchTerm = exposed?.Name ?? definition.Resource.SearchTerm }],
+        };
     }
 
     private static PluginIntegration Unknown(Definition definition) => new(definition.Name, definition.Required,
         definition.Feature, IntegrationState.Unknown, "Its status could not be read. Check the sync plugin's own settings.",
-        definition.SearchTerm ?? definition.Name);
+        definition.SearchTerm ?? definition.Name)
+    {
+        Resources = [definition.Resource],
+    };
 
     private static void CombineStatusEffects(List<PluginIntegration> plugins)
     {
@@ -134,6 +159,7 @@ internal static class IntegrationDiagnostics
                 : new PluginIntegration("Moodles / Loci", false, moodles.Feature,
                     moodles.State == loci.State ? moodles.State : IntegrationState.NotReady,
                     $"You only need one. Moodles: {moodles.StatusLabel}. Loci: {loci.StatusLabel}. Check or install your preferred one.", "");
+        result = result with { Resources = [.. moodles.Resources, .. loci.Resources] };
         var index = plugins.IndexOf(moodles);
         plugins.Remove(loci);
         plugins[index] = result;

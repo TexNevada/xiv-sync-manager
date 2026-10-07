@@ -35,6 +35,7 @@
 - Separates required plugins from optional features and explains what each adds, its status, and how to fix missing, disabled, incompatible, or unready integrations.
 - Reads each loaded sync's own integration availability, including while disconnected; only lists known optional integrations exposed by that version.
 - Treats PlayerSync's Moodles and Loci as alternatives and explains the conflict when both report ready.
+- Offers verified project links and custom-repository URL copying for every listed integration, including ready plugins. Labels plugins available through Dalamud's official repository and keeps separate links/searches for Moodles and Loci. See [INTEGRATION-PLUGINS.md](INTEGRATION-PLUGINS.md).
 - Provides Find buttons that search Dalamud's plugin installer and updates plugin checks automatically.
 - Adds **Sync List** and **Statistics** tabs below the theme selector.
 - Keeps search and Nearby / Online / Offline duplicate lists in **Sync List**.

@@ -91,9 +91,13 @@ public sealed record VramUsage(long? Bytes, bool Partial, string Description)
 
 public enum IntegrationState { Ready, Missing, Disabled, Incompatible, NotReady, Conflict, Unknown }
 
+public sealed record IntegrationResource(string Name, string ProjectUrl, string? RepositoryUrl, string SearchTerm);
+
 public sealed record PluginIntegration(string Name, bool Required, string Feature,
     IntegrationState State, string Explanation, string SearchTerm)
 {
+    public IReadOnlyList<IntegrationResource> Resources { get; init; } = [];
+
     public bool NeedsAttention => State is not (IntegrationState.Ready or IntegrationState.Unknown);
     public string StatusLabel => State switch
     {
