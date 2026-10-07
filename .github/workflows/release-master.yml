@@ -1,0 +1,24 @@
+name: Release master
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - src/XivSyncManager.csproj
+      - .github/workflows/release-master.yml
+      - .github/workflows/release-channel.yml
+      - scripts/release.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-master
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: ./.github/workflows/release-channel.yml
+    with:
+      channel: master

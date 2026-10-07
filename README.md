@@ -12,18 +12,20 @@ This plugin targets Dalamud API 15. The user reported the initial version workin
 
 ## Installing through Dalamud
 
-The custom repository file is [xivsyncmanager.json](xivsyncmanager.json). These installation steps become available after that file is published to the `master` branch and its referenced release package is uploaded to GitHub.
+Each branch has its own [xivsyncmanager.json](xivsyncmanager.json) installer feed, updated automatically after a successful release. Choose one channel:
+
+| Channel | Custom repository URL |
+| --- | --- |
+| Regular releases (`master`) | `https://raw.githubusercontent.com/TexNevada/xiv-sync-manager/master/xivsyncmanager.json` |
+| Development releases (`dev`) | `https://raw.githubusercontent.com/TexNevada/xiv-sync-manager/dev/xivsyncmanager.json` |
 
 1. Open `/xlsettings` and go to **Experimental > Custom Plugin Repositories**.
-2. Add this repository URL:
-
-   ```text
-   https://raw.githubusercontent.com/TexNevada/xiv-sync-manager/master/xivsyncmanager.json
-   ```
-
-3. Save the settings, open `/xlplugins`, and search for **XIV Sync Manager (Alpha)** to install it.
+2. Add the repository URL for your chosen channel from the table above.
+3. Save the settings, open `/xlplugins`, and search for **XIV Sync Manager** to install it. The development feed labels its entry **[Dev]**.
 
 The JSON contains the plugin's metadata and installation/update ZIP URLs, following Dalamud's [custom repository format](https://dalamud.dev/plugin-publishing/custom-repositories/).
+
+Use only one of these repository URLs at a time: both channels install the same plugin identity and share its configuration. Development releases are GitHub prereleases, but their custom repository works without enabling Dalamud's testing-plugin mode. When switching to a channel with an equal or lower version, Dalamud may require a reinstall instead of offering an update. Both channels are still alpha software.
 
 ## Using the manager
 
@@ -131,15 +133,19 @@ The DLL is `src/bin/x64/Release/XivSyncManager.dll`. Keep the generated `XivSync
 3. Open `/syncmanager` and confirm the installed services show a connected integration.
 4. Exercise a character pause and resume before enabling automatic management.
 
-## Publishing the installer package
+## Publishing releases
 
-The repository entry currently targets version `0.0.1.0` and release tag `v0.0.1.0`.
+The [master workflow](.github/workflows/release-master.yml) and [dev workflow](.github/workflows/release-dev.yml) publish each project version once per channel. Ordinary code and documentation commits do not publish releases. Release-tooling changes and manual runs can check or repair a channel, but cannot republish an already published version.
 
-1. Build the release using the command above.
-2. Publish `xivsyncmanager.json` to this repository's `master` branch.
-3. Create a public GitHub release tagged `v0.0.1.0` and upload `src/bin/x64/Release/XivSyncManager/latest.zip` as the asset named **latest.zip**.
+1. On the branch you want to release, increase `<Version>` in [src/XivSyncManager.csproj](src/XivSyncManager.csproj), for example from `0.0.1.0` to `0.0.2.0`. Use four numeric components and keep each channel's versions increasing.
+2. Commit and push to `dev` or `master`. The matching workflow builds and validates the Dalamud package.
+3. After publishing **latest.zip**, the workflow commits the generated `xivsyncmanager.json` to that same branch. Dalamud then sees the new version and its matching download URL. Do not manually update the feed before the package is published.
 
-For subsequent releases, update the project version, rebuild, and update `AssemblyVersion`, `DownloadLinkInstall`, `DownloadLinkUpdate`, and `LastUpdate` in `xivsyncmanager.json`. The version must match the generated plugin manifest; `LastUpdate` is the release time in Unix seconds. Each entry uses a version-specific download URL so it continues to point to its matching package.
+Regular releases use tags such as **v0.0.2.0**; development prereleases use **dev-v0.0.2.0**. Each has a version-specific download URL. The generated feed takes its metadata and version from the packaged plugin manifest and its `LastUpdate` from the actual GitHub release time. The first workflow installation publishes the current version if that channel has no release yet, so the initial feeds become downloadable without a separate version bump.
+
+To promote a development build, merge `dev` into `master`. A version already published on `dev` can also be released on `master` because their tags are separate. A merge that leaves the master version unchanged does not create another release.
+
+If publishing fails, rerun the failed workflow from GitHub Actions. Draft releases can be resumed from their original source commit; a feed update that failed after publication can be repaired without replacing the release. The workflows request `contents: write` through the repository's `GITHUB_TOKEN`; no personal access token is needed. Branch rules must allow the Actions bot to commit the installer feed. The feed commit itself does not trigger another release.
 
 ## In-game verification still required
 

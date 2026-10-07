@@ -1,0 +1,24 @@
+name: Release dev
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - src/XivSyncManager.csproj
+      - .github/workflows/release-dev.yml
+      - .github/workflows/release-channel.yml
+      - scripts/release.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-dev
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: ./.github/workflows/release-channel.yml
+    with:
+      channel: dev

@@ -1,20 +1,27 @@
-name: Sample PR Builder for SamplePlugin
+name: Build pull request
 
 on:
   pull_request:
-    branches: [ master ]
+    branches: [master, dev]
+
+permissions:
+  contents: read
 
 jobs:
 
   build:
     runs-on: windows-2022
 
-    env:
-      Solution_Name: SamplePlugin
-
     steps:
     - name: Checkout
       uses: actions/checkout@v5
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Check release tooling
+      run: python -m unittest discover -s scripts/tests -v
 
     - name: Install .NET
       uses: actions/setup-dotnet@v5
@@ -24,16 +31,17 @@ jobs:
     - name: Download Dalamud
       run: |
         Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile latest.zip
-        Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
+        $dalamud = Join-Path $env:RUNNER_TEMP 'dalamud'
+        Expand-Archive -Force latest.zip $dalamud
+        "DALAMUD_HOME=$dalamud" >> $env:GITHUB_ENV
 
     - name: Build with dotnet
-      run: dotnet build --configuration Release
+      run: dotnet build XivSyncManager.slnx --configuration Release -p:RestoreLockedMode=true
 
     - name: Store artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: SamplePlugin
-        path: .\SamplePlugin\bin\x64\Release\SamplePlugin\*
+        name: XivSyncManager
+        path: src/bin/x64/Release/XivSyncManager/latest.zip
         if-no-files-found: error
         retention-days: 1
-

@@ -1,0 +1,51 @@
+name: Publish release channel
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check release tooling
+        run: python -m unittest discover -s scripts/tests -v
+      - name: Decide whether this version needs publishing
+        id: plan
+        run: python scripts/release.py plan
+      - uses: actions/setup-dotnet@v5
+        if: steps.plan.outputs.publish == 'true'
+        with:
+          dotnet-version: 10.0.x
+      - name: Download Dalamud
+        if: steps.plan.outputs.publish == 'true'
+        shell: pwsh
+        run: |
+          $dalamud = Join-Path $env:RUNNER_TEMP 'dalamud'
+          Invoke-WebRequest https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile "$env:RUNNER_TEMP/dalamud.zip"
+          Expand-Archive "$env:RUNNER_TEMP/dalamud.zip" $dalamud
+          "DALAMUD_HOME=$dalamud" >> $env:GITHUB_ENV
+      - name: Build plugin
+        if: steps.plan.outputs.publish == 'true'
+        run: dotnet build XivSyncManager.slnx --configuration Release -p:RestoreLockedMode=true
+      - name: Publish package and prepare installer feed
+        if: steps.plan.outputs.feed == 'true'
+        run: python scripts/release.py publish
+      - name: Update this channel's installer feed
+        if: steps.plan.outputs.feed == 'true'
+        run: python scripts/release.py commit-feed

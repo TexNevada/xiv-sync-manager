@@ -4,3 +4,5 @@ bin/
 *.user
 src/bin/
 src/obj/
+artifacts/
+__pycache__/
