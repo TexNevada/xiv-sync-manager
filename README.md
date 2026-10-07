@@ -10,13 +10,13 @@ This plugin targets Dalamud API 15. The user reported the initial version workin
 
 ## Installing through Dalamud
 
-The custom repository file is [pluginmaster.json](pluginmaster.json). These installation steps become available after that file is published to the `master` branch and its referenced release package is uploaded to GitHub.
+The custom repository file is [xivsyncmanager.json](xivsyncmanager.json). These installation steps become available after that file is published to the `master` branch and its referenced release package is uploaded to GitHub.
 
 1. Open `/xlsettings` and go to **Experimental > Custom Plugin Repositories**.
 2. Add this repository URL:
 
    ```text
-   https://raw.githubusercontent.com/TexNevada/xiv-sync-manager/master/pluginmaster.json
+   https://raw.githubusercontent.com/TexNevada/xiv-sync-manager/master/xivsyncmanager.json
    ```
 
 3. Save the settings, open `/xlplugins`, and search for **XIV Sync Manager (Alpha)** to install it.
@@ -134,10 +134,10 @@ The DLL is `src/bin/x64/Release/XivSyncManager.dll`. Keep the generated `XivSync
 The repository entry currently targets version `0.0.1.0` and release tag `v0.0.1.0`.
 
 1. Build the release using the command above.
-2. Publish `pluginmaster.json` to this repository's `master` branch.
+2. Publish `xivsyncmanager.json` to this repository's `master` branch.
 3. Create a public GitHub release tagged `v0.0.1.0` and upload `src/bin/x64/Release/XivSyncManager/latest.zip` as the asset named **latest.zip**.
 
-For subsequent releases, update the project version, rebuild, and update `AssemblyVersion`, `DownloadLinkInstall`, `DownloadLinkUpdate`, and `LastUpdate` in `pluginmaster.json`. The version must match the generated plugin manifest; `LastUpdate` is the release time in Unix seconds. Each entry uses a version-specific download URL so it continues to point to its matching package.
+For subsequent releases, update the project version, rebuild, and update `AssemblyVersion`, `DownloadLinkInstall`, `DownloadLinkUpdate`, and `LastUpdate` in `xivsyncmanager.json`. The version must match the generated plugin manifest; `LastUpdate` is the release time in Unix seconds. Each entry uses a version-specific download URL so it continues to point to its matching package.
 
 ## In-game verification still required
 
