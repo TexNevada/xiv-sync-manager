@@ -153,7 +153,6 @@ public sealed partial class MainWindow : Window
             ImGui.EndTable();
         }
         ImGui.Spacing();
-        ImGui.TextWrapped("These figures estimate VRAM for synced character mods. Overlapping syncs and shared resources can be counted more than once. The sum can differ from actual GPU memory use. Your own character and the rest of the game are excluded.");
         ImGui.TextDisabled("Updates automatically as each plugin updates its estimates.");
         ImGui.Spacing();
         ImGui.Separator();
