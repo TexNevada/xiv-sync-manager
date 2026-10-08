@@ -5,8 +5,6 @@ using System.Linq;
 
 namespace XivSyncManager;
 
-public enum SyncProvider { Lightless, Snowcloak, PlayerSync }
-
 public static class SyncProviderNames
 {
     public static string DisplayName(this SyncProvider provider) => provider switch

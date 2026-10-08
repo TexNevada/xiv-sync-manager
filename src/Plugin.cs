@@ -35,6 +35,8 @@ public sealed class Plugin : IAsyncDalamudPlugin
         Configuration.ManualPauses ??= new(StringComparer.Ordinal);
         Configuration.AutomaticExceptions ??= new(StringComparer.Ordinal);
         Configuration.ObservedCharacters ??= new(StringComparer.Ordinal);
+        Configuration.CharacterIndexActivity ??= new(StringComparer.Ordinal);
+        if (!Enum.IsDefined(Configuration.StaleIndexRetention)) Configuration.StaleIndexRetention = IndexRetention.None;
         Configuration.OwnedPauses ??= new(StringComparer.Ordinal);
         Configuration.DuplicateCharacters ??= new(StringComparer.Ordinal);
         Configuration.CharacterPauses ??= new(StringComparer.Ordinal);

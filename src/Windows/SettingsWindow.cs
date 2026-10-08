@@ -26,6 +26,8 @@ public sealed class SettingsWindow : Window
     {
         lock (plugin.Coordinator.SyncRoot)
         {
+            using var child = ImRaii.Child("settingsContent", Vector2.Zero, false);
+            if (!child.Success) return;
             var keepFallback = plugin.Configuration.KeepFallbackUntilReentry;
             if (ImGui.Checkbox("Keep fallback sync until player returns", ref keepFallback))
                 plugin.Coordinator.SetKeepFallbackUntilReentry(keepFallback);
@@ -47,6 +49,15 @@ public sealed class SettingsWindow : Window
                     plugin.Configuration.Save();
                 }
             ImGui.TextWrapped("Hide the badge when all checked integrations are ready. Enabled by default.");
+            ImGui.Separator();
+            ImGui.Spacing();
+            ImGui.TextUnformatted("Delete stale indexed characters after");
+            var retention = (int)plugin.Configuration.StaleIndexRetention;
+            ImGui.SetNextItemWidth(-1);
+            if (ImGui.Combo("##StaleIndexRetention", ref retention, "None (Does not delete index data)\0" +
+                    "30 days\0" + "60 days\0" + "90 days\0" + "180 days\0" + "1 year\0"))
+                plugin.Coordinator.SetStaleIndexRetention((IndexRetention)retention);
+            ImGui.TextWrapped("Counts from the last time any sync reported the character Online. Nearby presence alone does not reset the timer. Entries without online history count from when tracking started.");
             ImGui.Separator();
             ImGui.Spacing();
             ImGui.TextWrapped("Clear indexed characters and saved pause choices. Your sync priority and preferred sync choices are kept.");

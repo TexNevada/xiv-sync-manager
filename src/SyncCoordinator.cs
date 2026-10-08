@@ -24,6 +24,10 @@ public sealed partial class SyncCoordinator
     private DateTime nextRefresh;
     private IEnumerator<bool>? refresh;
     private bool rebuildDuplicateCache = true;
+    private DateTime nextIndexActivitySave;
+    private DateTime nextIndexExpiryCheck;
+    private bool indexActivityDirty;
+    private HashSet<string> onlineIndexedCharacters = new(StringComparer.Ordinal);
     private HashSet<string> visibleCharacters = new(StringComparer.Ordinal);
     private bool stopping;
     private const int MaxConcurrentOperations = 8;
@@ -162,8 +166,12 @@ public sealed partial class SyncCoordinator
                 var display = $"{name}@{player.HomeWorld.Value.Name}";
                 pair.CharacterIdentity = identity;
                 pair.CharacterName = display;
-                if (!configuration.ObservedCharacters.TryGetValue(pair.Key, out var known)
-                    || known.Identity != identity || known.Ident != pair.Ident || known.DisplayName != display)
+                var hasObservation = configuration.ObservedCharacters.TryGetValue(pair.Key, out var known);
+                // With expiry enabled, require Online to add a new association: Nearby alone must
+                // not immediately rebuild an expired entry and restart its tracking baseline.
+                if ((!hasObservation || known!.Identity != identity || known.Ident != pair.Ident || known.DisplayName != display)
+                    && (pair.Online || configuration.StaleIndexRetention == IndexRetention.None
+                        || hasObservation && known!.Identity == identity))
                 {
                     // Even a route without an identifier can be remembered for display. Reuse for actions
                     // below still requires a matching nonempty identifier or our own restoration record.
@@ -192,7 +200,48 @@ public sealed partial class SyncCoordinator
             changed |= UpdateDuplicateCache();
             rebuildDuplicateCache = false;
         }
-        if (changed) configuration.Save();
+        var now = DateTime.UtcNow;
+        changed |= UpdateIndexActivity(now);
+        if (now >= nextIndexExpiryCheck)
+        {
+            changed |= ExpireStaleIndex(now);
+            nextIndexExpiryCheck = now.AddMinutes(1);
+        }
+        if (changed || indexActivityDirty && now >= nextIndexActivitySave)
+        {
+            configuration.Save();
+            indexActivityDirty = false;
+            nextIndexActivitySave = now.AddMinutes(1);
+        }
+    }
+
+    private bool UpdateIndexActivity(DateTime now)
+    {
+        var update = CharacterIndexRetention.UpdateActivity(configuration.CharacterIndexActivity,
+            configuration.ObservedCharacters.Values.Select(c => c.Identity).Concat(configuration.DuplicateCharacters.Keys),
+            Pairs.Where(p => p.CharacterIdentity != null).Select(p => (p.CharacterIdentity!, p.Online)), now);
+        indexActivityDirty |= update.ActivityChanged;
+        // Save transitions immediately so going offline does not lose the last online observation.
+        var changed = update.IndexChanged || !update.Online.SetEquals(onlineIndexedCharacters);
+        onlineIndexedCharacters = update.Online;
+        return changed;
+    }
+
+    private bool ExpireStaleIndex(DateTime now)
+    {
+        var expired = CharacterIndexRetention.RemoveExpired(configuration.CharacterIndexActivity,
+            configuration.ObservedCharacters, configuration.DuplicateCharacters, configuration.StaleIndexRetention, now);
+        if (expired.Count == 0) return false;
+        foreach (var identity in expired) duplicatePolicy.ForgetSelection(identity);
+        // Keep responsibility for existing pauses until the service confirms their restoration.
+        foreach (var owned in configuration.OwnedPauses.Values.Where(o => expired.Contains(o.CharacterIdentity)))
+            owned.RestoreRequested = true;
+        foreach (var pair in Pairs.Where(p => p.CharacterIdentity != null && expired.Contains(p.CharacterIdentity)))
+        {
+            pair.CharacterIdentity = null;
+            pair.CharacterName = null;
+        }
+        return true;
     }
 
     private bool UpdateDuplicateCache()
@@ -521,6 +570,15 @@ public sealed partial class SyncCoordinator
         RefreshSoon();
     }
 
+    public void SetStaleIndexRetention(IndexRetention retention)
+    {
+        if (!Enum.IsDefined(retention)) return;
+        configuration.StaleIndexRetention = retention;
+        nextIndexExpiryCheck = DateTime.MinValue;
+        configuration.Save();
+        RefreshSoon();
+    }
+
     public void SetAutomaticManagement(bool enabled)
     {
         configuration.AutomaticManagement = enabled;
@@ -602,6 +660,9 @@ public sealed partial class SyncCoordinator
             foreach (var owned in configuration.OwnedPauses.Values) owned.RestoreRequested = true;
             configuration.ObservedCharacters.Clear();
             configuration.DuplicateCharacters.Clear();
+            configuration.CharacterIndexActivity.Clear();
+            onlineIndexedCharacters.Clear();
+            indexActivityDirty = false;
             configuration.ManualPauses.Clear();
             configuration.CharacterPauses.Clear();
             configuration.AutomaticExceptions.Clear();

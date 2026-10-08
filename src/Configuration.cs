@@ -17,6 +17,8 @@ public sealed class Configuration : IPluginConfiguration
     public bool KeepFallbackUntilReentry { get; set; } = true;
     public bool ShowIntegrationInfo { get; set; } = true;
     public bool HideReadyIntegrationInfo { get; set; } = true;
+    public IndexRetention StaleIndexRetention { get; set; } = IndexRetention.None;
+    public Dictionary<string, IndexedCharacterActivity> CharacterIndexActivity { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, bool> SectionExpanded { get; set; } = new(StringComparer.Ordinal)
     {
         ["Nearby"] = true,
@@ -38,19 +40,6 @@ public sealed class Configuration : IPluginConfiguration
         && (ManualPauses.Contains(pair.Key) || (pair.CharacterIdentity != null && CharacterPauses.Contains(pair.CharacterIdentity)));
 
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
-}
-
-public sealed class CachedDuplicateCharacter
-{
-    public string DisplayName { get; set; } = string.Empty;
-    public Dictionary<string, SyncProvider> Routes { get; set; } = new(StringComparer.Ordinal);
-}
-
-public sealed class ObservedCharacter
-{
-    public string Identity { get; set; } = string.Empty;
-    public string DisplayName { get; set; } = string.Empty;
-    public string Ident { get; set; } = string.Empty;
 }
 
 // Saved before sending a request so a restart does not lose responsibility for a pause.

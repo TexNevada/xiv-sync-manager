@@ -43,6 +43,9 @@ jobs:
       - name: Build plugin
         if: steps.plan.outputs.publish == 'true'
         run: dotnet build XivSyncManager.slnx --configuration Release -p:RestoreLockedMode=true
+      - name: Check index retention
+        if: steps.plan.outputs.publish == 'true'
+        run: dotnet run --project tests/IndexRetention.Tests --configuration Release
       - name: Publish package and prepare installer feed
         if: steps.plan.outputs.feed == 'true'
         run: python scripts/release.py publish

@@ -35,6 +35,9 @@ jobs:
         Expand-Archive -Force latest.zip $dalamud
         "DALAMUD_HOME=$dalamud" >> $env:GITHUB_ENV
 
+    - name: Check index retention
+      run: dotnet run --project tests/IndexRetention.Tests --configuration Release
+
     - name: Build with dotnet
       run: dotnet build XivSyncManager.slnx --configuration Release -p:RestoreLockedMode=true
 
