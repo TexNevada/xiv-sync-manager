@@ -244,7 +244,9 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
             Visible = ReflectionAccess.Boolean(ReflectionAccess.Read(pair, "IsVisible")),
             OwnPaused = ownPaused,
             OtherPaused = otherPaused,
-            ExternalHold = canHold && (applicationReasons.Concat(downloadReasons).Any(r => r != HoldSource)
+            // Snowcloak's IsPaused is an effective native permission pause, including
+            // direct/group restrictions. Releasing our local ledger hold cannot undo it.
+            ExternalHold = canHold && (ownPaused || applicationReasons.Concat(downloadReasons).Any(r => r != HoldSource)
                                        || Reasons(pair, "AutoPauseReasons").Count != 0),
             ManagerHeld = canHold && (applicationReasons.Contains(HoldSource) || downloadReasons.Contains(HoldSource)),
             ManagerFullyHeld = canHold && applicationReasons.Contains(HoldSource) && downloadReasons.Contains(HoldSource),

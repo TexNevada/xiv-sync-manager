@@ -16,6 +16,12 @@ public sealed partial class MainWindow : Window
 {
     private readonly Plugin plugin;
     private string search = string.Empty;
+    private IReadOnlyList<DuplicateCharacter>? filteredSource;
+    private string filteredSearch = string.Empty;
+    private DuplicateCharacter[] nearbyCharacters = [];
+    private DuplicateCharacter[] onlineCharacters = [];
+    private DuplicateCharacter[] offlineCharacters = [];
+    private int filteredCount;
     private static readonly Vector4 ConnectedGreen = new(0.5f, 0.85f, 0.6f, 1);
 
     public MainWindow(Plugin plugin) : base("XIV Sync Manager###XivSyncManagerMain")
@@ -85,8 +91,18 @@ public sealed partial class MainWindow : Window
         ImGui.InputTextWithHint("##search", "Search character or world", ref search, 128);
 
         var characters = coordinator.Characters;
-        var filtered = characters.Where(c => string.IsNullOrWhiteSpace(search)
-            || c.DisplayName.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
+        var query = search.Trim();
+        if (!ReferenceEquals(filteredSource, characters) || filteredSearch != query)
+        {
+            var filtered = characters.Where(c => query.Length == 0
+                || c.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
+            nearbyCharacters = filtered.Where(c => c.Nearby).ToArray();
+            onlineCharacters = filtered.Where(c => c.Online && !c.Nearby).ToArray();
+            offlineCharacters = filtered.Where(c => !c.Online && !c.Nearby).ToArray();
+            filteredCount = filtered.Length;
+            filteredSource = characters;
+            filteredSearch = query;
+        }
         ImGui.TextDisabled($"{characters.Count} cached duplicate character(s)");
         if (coordinator.UnresolvedPauses > 0)
         {
@@ -100,12 +116,12 @@ public sealed partial class MainWindow : Window
 
         using var child = ImRaii.Child("DuplicateCharacters", Vector2.Zero, false);
         if (!child.Success) return;
-        DrawList("Nearby", filtered.Where(c => c.Nearby).ToArray(), defaultOpen: true);
-        DrawList("Online", filtered.Where(c => c.Online && !c.Nearby).ToArray(), defaultOpen: true);
-        DrawList("Offline", filtered.Where(c => !c.Online && !c.Nearby).ToArray(), defaultOpen: false);
+        DrawList("Nearby", nearbyCharacters, defaultOpen: true);
+        DrawList("Online", onlineCharacters, defaultOpen: true);
+        DrawList("Offline", offlineCharacters, defaultOpen: false);
         if (characters.Count == 0)
             ImGui.TextWrapped("Duplicates appear after the same character has been identified in view through two or more syncs. Once identified, they stay in this list when offline.");
-        else if (filtered.Length == 0)
+        else if (filteredCount == 0)
             ImGui.TextDisabled("No characters match your search.");
     }
 
@@ -402,9 +418,22 @@ public sealed partial class MainWindow : Window
     private void DrawCharacter(DuplicateCharacter character)
     {
         var coordinator = plugin.Coordinator;
-        using var id = ImRaii.PushId(character.Identity);
-        ImGui.TableNextRow();
+        var audioLines = 0;
+        var needsRetry = false;
+        foreach (var pair in character.Pairs)
+        {
+            if (pair.Audio.Recent) audioLines++;
+            needsRetry |= coordinator.ErrorFor(pair) != null || plugin.Configuration.AutomaticExceptions.Contains(pair.Key);
+        }
+        var contentHeight = MathF.Max(ImGui.GetFrameHeight(),
+            ImGui.GetTextLineHeight() + audioLines * ImGui.GetTextLineHeightWithSpacing());
+        if (needsRetry) contentHeight = MathF.Max(contentHeight, ImGui.GetTextLineHeightWithSpacing() + ImGui.GetTextLineHeight());
+        // Audio and Retry create variable-height rows. Reserve each row's actual minimum
+        // height, but submit its controls only when it intersects the child window's clip.
+        ImGui.TableNextRow(ImGuiTableRowFlags.None, contentHeight + 2 * ImGui.GetStyle().CellPadding.Y);
         ImGui.TableNextColumn();
+        if (!ImGui.IsRectVisible(new Vector2(1, contentHeight))) return;
+        using var id = ImRaii.PushId(character.Identity);
         ImGui.TextUnformatted(character.DisplayName);
         Tooltip($"Known on: {string.Join(", ", character.Providers.Select(p => p.DisplayName()))}");
         foreach (var pair in character.Pairs.Where(p => p.Audio.Recent))

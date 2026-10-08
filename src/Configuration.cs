@@ -41,6 +41,7 @@ public sealed class Configuration : IPluginConfiguration
     public Dictionary<string, OwnedPause> OwnedPauses { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, CachedDuplicateCharacter> DuplicateCharacters { get; set; } = new(StringComparer.Ordinal);
     public HashSet<string> CharacterPauses { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, List<LateMediaChange>> LateMediaChanges { get; set; } = new(StringComparer.Ordinal);
 
     public bool IsManuallyPaused(PairSnapshot pair) => !AutomaticExceptions.Contains(pair.Key)
         && (ManualPauses.Contains(pair.Key) || (pair.CharacterIdentity != null && CharacterPauses.Contains(pair.CharacterIdentity)));
@@ -87,6 +88,7 @@ public sealed class Configuration : IPluginConfiguration
         copy.DuplicateCharacters = DuplicateCharacters.ToDictionary(e => e.Key, e => e.Value.Copy(), StringComparer.Ordinal);
         copy.CharacterIndexActivity = CharacterIndexActivity.ToDictionary(e => e.Key, e => e.Value.Copy(), StringComparer.Ordinal);
         copy.OwnedPauses = OwnedPauses.ToDictionary(e => e.Key, e => e.Value.Copy(), StringComparer.Ordinal);
+        copy.LateMediaChanges = LateMediaChanges.ToDictionary(e => e.Key, e => e.Value.Select(c => c.Copy()).ToList(), StringComparer.Ordinal);
         return copy;
     }
 }
@@ -118,4 +120,16 @@ public sealed class PendingMediaChange
     public string After { get; set; } = string.Empty;
     public string OriginalAfter { get; set; } = string.Empty;
     public DateTime Deadline { get; set; }
+}
+
+// A deadline does not prove a server request was never applied. Keep its expected
+// pause-bearing result even after restoration completes, so a late callback remains recoverable.
+public sealed class LateMediaChange
+{
+    internal LateMediaChange Copy() => (LateMediaChange)MemberwiseClone();
+    public string CharacterIdentity { get; set; } = string.Empty;
+    public string After { get; set; } = string.Empty;
+    public string OriginalAfter { get; set; } = string.Empty;
+    public string PausedAfter { get; set; } = string.Empty;
+    public string PauseReason { get; set; } = string.Empty;
 }

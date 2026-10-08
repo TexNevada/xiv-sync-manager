@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   release:
@@ -49,6 +50,9 @@ jobs:
       - name: Check configuration saves
         if: steps.plan.outputs.publish == 'true'
         run: dotnet run --project tests/ConfigurationSave.Tests --configuration Release
+      - name: Check coordinator and native adapters
+        if: steps.plan.outputs.publish == 'true'
+        run: dotnet run --project tests/Coordinator.Tests --configuration Release
       - name: Publish package and prepare installer feed
         if: steps.plan.outputs.feed == 'true'
         run: python scripts/release.py publish

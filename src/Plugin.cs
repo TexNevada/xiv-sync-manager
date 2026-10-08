@@ -40,6 +40,7 @@ public sealed class Plugin : IAsyncDalamudPlugin
         Configuration.OwnedPauses ??= new(StringComparer.Ordinal);
         Configuration.DuplicateCharacters ??= new(StringComparer.Ordinal);
         Configuration.CharacterPauses ??= new(StringComparer.Ordinal);
+        Configuration.LateMediaChanges ??= new(StringComparer.Ordinal);
         // Move the previous default to RoseQuartz once; keep other saved theme choices.
         if (!Enum.IsDefined(Configuration.Theme)
             || (Configuration.Version < 3 && Configuration.Theme == SyncTheme.ForestGreen))

@@ -35,23 +35,53 @@ public sealed partial class SyncCoordinator
     private bool stopping;
     private const int MaxConcurrentOperations = 8;
     private static readonly TimeSpan RefreshFrameBudget = TimeSpan.FromMilliseconds(2);
+    private IReadOnlyList<PairSnapshot> pairs = [];
+    private HashSet<string> pairKeys = new(StringComparer.Ordinal);
+    private IReadOnlyList<DuplicateCharacter> characters = [];
+    private bool charactersDirty = true;
 
     public object SyncRoot { get; } = new();
-    public IReadOnlyList<PairSnapshot> Pairs { get; private set; } = [];
+    public IReadOnlyList<PairSnapshot> Pairs
+    {
+        get => pairs;
+        private set
+        {
+            pairs = value;
+            pairKeys = value.Select(p => p.Key).ToHashSet(StringComparer.Ordinal);
+            charactersDirty = true;
+        }
+    }
     public IReadOnlyList<ProviderStatus> Providers => adapters.Select(a => a.Status).ToArray();
     public Configuration Configuration => configuration;
-    public int UnresolvedPauses => configuration.OwnedPauses.Keys.Count(k => Pairs.All(p => p.Key != k));
-    public IReadOnlyList<DuplicateCharacter> Characters => configuration.DuplicateCharacters.Select(entry =>
+    public int UnresolvedPauses => configuration.OwnedPauses.Keys.Count(k => !pairKeys.Contains(k));
+    public IReadOnlyList<DuplicateCharacter> Characters
     {
-        var pairs = Pairs.Where(p => p.CharacterIdentity == entry.Key).ToArray();
-        return new DuplicateCharacter(entry.Key, entry.Value.DisplayName,
-            visibleCharacters.Contains(entry.Key) || pairs.Any(p => p.Online || p.Visible),
-            entry.Value.Routes.Values.Concat(pairs.Select(p => p.Provider)).Distinct()
-                .OrderBy(p => configuration.Priority.IndexOf(p)).ToArray(), pairs)
+        get
         {
-            Nearby = visibleCharacters.Contains(entry.Key),
-        };
-    }).OrderBy(c => c.DisplayName, StringComparer.OrdinalIgnoreCase).ToArray();
+            if (charactersDirty) RebuildCharacterView();
+            return characters;
+        }
+    }
+
+    private void RebuildCharacterView()
+    {
+        // Keep captured LINQ variables in the rebuild method so the cached getter does
+        // not allocate a closure on every draw, even when it returns early.
+        var byCharacter = Pairs.Where(p => p.CharacterIdentity != null)
+            .ToLookup(p => p.CharacterIdentity!, StringComparer.Ordinal);
+        characters = configuration.DuplicateCharacters.Select(entry =>
+        {
+            var identified = byCharacter[entry.Key].ToArray();
+            return new DuplicateCharacter(entry.Key, entry.Value.DisplayName,
+                visibleCharacters.Contains(entry.Key) || identified.Any(p => p.Online || p.Visible),
+                entry.Value.Routes.Values.Concat(identified.Select(p => p.Provider)).Distinct()
+                    .OrderBy(p => configuration.Priority.IndexOf(p)).ToArray(), identified)
+            {
+                Nearby = visibleCharacters.Contains(entry.Key),
+            };
+        }).OrderBy(c => c.DisplayName, StringComparer.OrdinalIgnoreCase).ToArray();
+        charactersDirty = false;
+    }
 
     public SyncCoordinator(Configuration configuration)
     {
@@ -63,6 +93,7 @@ public sealed partial class SyncCoordinator
 
     public void RefreshSoon()
     {
+        charactersDirty = true;
         refresh?.Dispose();
         refresh = null;
         nextRefresh = DateTime.MinValue;
@@ -197,6 +228,7 @@ public sealed partial class SyncCoordinator
 
     private void AssociateCharacters()
     {
+        charactersDirty = true;
         var players = Plugin.ObjectTable.OfType<IPlayerCharacter>()
             .Where(p => p.Address != nint.Zero && p.HomeWorld.RowId != 0).GroupBy(p => p.Address).ToDictionary(g => g.Key, g => g.First());
         visibleCharacters = players.Values.Select(p => $"{p.Name.TextValue}@{p.HomeWorld.RowId}").ToHashSet(StringComparer.Ordinal);
@@ -337,6 +369,7 @@ public sealed partial class SyncCoordinator
     {
         foreach (var pair in Pairs)
         {
+            ReconcileLateMediaChanges(pair);
             if (operations.ContainsKey(pair.Key) || mediaOperations.ContainsKey(pair.Key)
                 || !configuration.OwnedPauses.TryGetValue(pair.Key, out var owned)) continue;
             ReconcileMediaChange(pair, owned);
@@ -372,6 +405,7 @@ public sealed partial class SyncCoordinator
     private void StartPause(PairSnapshot pair)
     {
         if (!CanStart(pair)) return;
+        var created = false;
         if (configuration.OwnedPauses.TryGetValue(pair.Key, out var owned))
         {
             if (owned.RestoreRequested || (owned.LocalHold ? pair.ManagerFullyHeld : pair.Permissions == owned.PausedPermissions)) return;
@@ -381,7 +415,17 @@ public sealed partial class SyncCoordinator
             if (pair.OwnPaused || pair.ExternalHold) return;
             owned = pair.Adapter.PreparePause(pair);
             configuration.OwnedPauses[pair.Key] = owned;
-            configuration.Save();
+            created = true;
+        }
+        // An earlier save may have failed after inserting the in-memory record. Every
+        // native pause attempt must persist its restoration record successfully first.
+        try { configuration.Save(); }
+        catch
+        {
+            // No native request was sent. Do not let a later external pause matching
+            // our prepared fingerprint be mistaken for a pause we actually requested.
+            if (created) configuration.OwnedPauses.Remove(pair.Key);
+            throw;
         }
         StartOperation(pair, true);
     }

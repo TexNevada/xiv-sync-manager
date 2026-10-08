@@ -215,7 +215,7 @@ internal sealed class DuplicatePolicy
                 && !configuration.IsManuallyPaused(p)
                 && !configuration.AutomaticExceptions.Contains(p.Key)
                 && (p.Online || p.Visible || (visibleCharacters.Contains(identity) && IsRestorable(p)))
-                && (!p.OwnPaused || IsRestorable(p))).ToList();
+                && (!p.OwnPaused || !p.Adapter.LocalHolds && IsRestorable(p))).ToList();
             if (candidates.Count == 0)
             {
                 // Retain an outage decision until a fallback becomes available, and retain a pin

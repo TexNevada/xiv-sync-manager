@@ -41,6 +41,9 @@ jobs:
     - name: Check configuration saves
       run: dotnet run --project tests/ConfigurationSave.Tests --configuration Release
 
+    - name: Check coordinator and native adapters
+      run: dotnet run --project tests/Coordinator.Tests --configuration Release
+
     - name: Build with dotnet
       run: dotnet build XivSyncManager.slnx --configuration Release -p:RestoreLockedMode=true
 

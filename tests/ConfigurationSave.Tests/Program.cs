@@ -17,6 +17,7 @@ var config = new Configuration
     ManualPauses = ["pair"],
     AutomaticExceptions = ["other"],
     CharacterPauses = ["Character"],
+    LateMediaChanges = new() { ["pair"] = [new() { After = "late", OriginalAfter = "original" }] },
     ObservedCharacters = new() { ["pair"] = new() { Identity = "Character", Ident = "verified" } },
     DuplicateCharacters = new() { ["Character"] = new() { Routes = new() { ["pair"] = SyncProvider.Lightless } } },
     CharacterIndexActivity = new() { ["Character"] = new() { TrackingStartedUtc = DateTime.UtcNow } },
@@ -40,6 +41,8 @@ config.DuplicateCharacters["Character"].Routes.Clear();
 config.CharacterIndexActivity["Character"].LastSeenOnlineUtc = DateTime.UtcNow;
 config.OwnedPauses["pair"].OriginalPermissions = "changed";
 config.OwnedPauses["pair"].MediaChange!.After = "changed";
+config.LateMediaChanges["pair"][0].After = "changed";
+config.LateMediaChanges["pair"].Add(new());
 Assert(snapshot.AutomaticManagement && snapshot.StaleIndexRetention == IndexRetention.Days60, "Snapshot retains scalar settings");
 Assert(snapshot.Priority.Count == 3 && snapshot.PreferredProviders["Character"] == SyncProvider.Lightless, "Priority and preferred syncs are independent");
 Assert(snapshot.SectionExpanded["Online"] && snapshot.ManualPauses.Contains("pair")
@@ -49,6 +52,8 @@ Assert(snapshot.DuplicateCharacters["Character"].Routes.Count == 1, "Nested dupl
 Assert(snapshot.CharacterIndexActivity["Character"].LastSeenOnlineUtc == null, "Online activity is independent");
 Assert(snapshot.OwnedPauses["pair"].OriginalPermissions == "before"
     && snapshot.OwnedPauses["pair"].MediaChange!.After == "after", "Restoration and pending media records are independent");
+Assert(snapshot.LateMediaChanges["pair"].Count == 1 && snapshot.LateMediaChanges["pair"][0].After == "late",
+    "Late media recovery lists and records are independent");
 foreach (var property in typeof(Configuration).GetProperties())
 {
     var live = property.GetValue(config);
