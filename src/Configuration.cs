@@ -42,6 +42,7 @@ public sealed class Configuration : IPluginConfiguration
     public Dictionary<string, CachedDuplicateCharacter> DuplicateCharacters { get; set; } = new(StringComparer.Ordinal);
     public HashSet<string> CharacterPauses { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, List<LateMediaChange>> LateMediaChanges { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, List<LatePauseChange>> LatePauseChanges { get; set; } = new(StringComparer.Ordinal);
 
     public bool IsManuallyPaused(PairSnapshot pair) => !AutomaticExceptions.Contains(pair.Key)
         && (ManualPauses.Contains(pair.Key) || (pair.CharacterIdentity != null && CharacterPauses.Contains(pair.CharacterIdentity)));
@@ -89,6 +90,7 @@ public sealed class Configuration : IPluginConfiguration
         copy.CharacterIndexActivity = CharacterIndexActivity.ToDictionary(e => e.Key, e => e.Value.Copy(), StringComparer.Ordinal);
         copy.OwnedPauses = OwnedPauses.ToDictionary(e => e.Key, e => e.Value.Copy(), StringComparer.Ordinal);
         copy.LateMediaChanges = LateMediaChanges.ToDictionary(e => e.Key, e => e.Value.Select(c => c.Copy()).ToList(), StringComparer.Ordinal);
+        copy.LatePauseChanges = LatePauseChanges.ToDictionary(e => e.Key, e => e.Value.Select(c => c.Copy()).ToList(), StringComparer.Ordinal);
         return copy;
     }
 }
@@ -100,6 +102,7 @@ public sealed class OwnedPause
     {
         var copy = (OwnedPause)MemberwiseClone();
         copy.MediaChange = MediaChange?.Copy();
+        copy.PauseChange = PauseChange?.Copy();
         return copy;
     }
     public string CharacterIdentity { get; set; } = string.Empty;
@@ -110,6 +113,17 @@ public sealed class OwnedPause
     public bool Confirmed { get; set; }
     public bool RestoreRequested { get; set; }
     public PendingMediaChange? MediaChange { get; set; }
+    public LatePauseChange? PauseChange { get; set; }
+}
+
+// Saved before a server pause, then retained separately if its result is uncertain.
+public sealed class LatePauseChange
+{
+    internal LatePauseChange Copy() => (LatePauseChange)MemberwiseClone();
+    public string CharacterIdentity { get; set; } = string.Empty;
+    public string OriginalPermissions { get; set; } = string.Empty;
+    public string PausedPermissions { get; set; } = string.Empty;
+    public string PauseReason { get; set; } = string.Empty;
 }
 
 // Keep both permission versions until a media request is observed, including across a reload.

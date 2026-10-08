@@ -41,6 +41,7 @@ public sealed class Plugin : IAsyncDalamudPlugin
         Configuration.DuplicateCharacters ??= new(StringComparer.Ordinal);
         Configuration.CharacterPauses ??= new(StringComparer.Ordinal);
         Configuration.LateMediaChanges ??= new(StringComparer.Ordinal);
+        Configuration.LatePauseChanges ??= new(StringComparer.Ordinal);
         // Move the previous default to RoseQuartz once; keep other saved theme choices.
         if (!Enum.IsDefined(Configuration.Theme)
             || (Configuration.Version < 3 && Configuration.Theme == SyncTheme.ForestGreen))
@@ -81,8 +82,9 @@ public sealed class Plugin : IAsyncDalamudPlugin
             CommandManager.RemoveHandler(CommandName);
             windows.RemoveAllWindows();
         }).ConfigureAwait(false);
-        await Coordinator.StopAsync().ConfigureAwait(false);
-        await Configuration.FlushSavesAsync().ConfigureAwait(false);
+        try { await Coordinator.StopAsync().ConfigureAwait(false); }
+        catch (Exception exception) { Log.Warning(exception, "[Lifecycle] Cleanup failed; saved restoration records will be retried on reload."); }
+        finally { await Configuration.FlushSavesAsync().ConfigureAwait(false); }
         Log.Info("[Lifecycle] Unloaded; {PendingRestorations} restoration records retained.", Configuration.OwnedPauses.Count);
     }
 

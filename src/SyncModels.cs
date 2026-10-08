@@ -187,6 +187,12 @@ internal sealed class DuplicatePolicy
             }
         }
 
+        // Index settled backup pauses once. A character must not scan every other
+        // character's pauses, or allocate a provider prefix for every global key.
+        var previousByCharacter = previousPauses.Where(key => configuration.OwnedPauses.TryGetValue(key, out var owned)
+                && !owned.RestoreRequested && !configuration.ManualPauses.Contains(key)
+                && !configuration.AutomaticExceptions.Contains(key))
+            .ToLookup(key => configuration.OwnedPauses[key].CharacterIdentity, StringComparer.Ordinal);
         var groups = pairs.Where(p => p.CharacterIdentity != null)
             .GroupBy(p => p.CharacterIdentity!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.Ordinal);
@@ -257,12 +263,9 @@ internal sealed class DuplicatePolicy
 
         void PreservePauses(string identity, SyncProvider winner)
         {
-            foreach (var key in previousPauses)
-                if (!key.StartsWith($"{winner}|", StringComparison.Ordinal)
-                    && configuration.OwnedPauses.TryGetValue(key, out var owned) && owned.CharacterIdentity == identity
-                    && !owned.RestoreRequested && !configuration.ManualPauses.Contains(key)
-                    && !configuration.AutomaticExceptions.Contains(key))
-                    desired.Add(key);
+            var winnerPrefix = $"{winner}|";
+            foreach (var key in previousByCharacter[identity])
+                if (!key.StartsWith(winnerPrefix, StringComparison.Ordinal)) desired.Add(key);
         }
     }
 

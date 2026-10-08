@@ -86,7 +86,9 @@
 - Checks plugin connections and player sync states automatically once per second.
 - Spreads refresh work across framework frames with a cooperative 2 ms budget and caches reflection lookups to reduce refresh hitches.
 - Saves routine index updates in the background while keeping restoration saves synchronous and ordered.
-- Requires successful restoration-record saves before pause retries and retains recovery information for delayed media responses.
+- Requires successful restoration-record saves before pause retries and retains recovery information for delayed pause and media responses.
+- Releases the manager's own Snowcloak holds during shutdown even if configuration saves fail, while retaining recovery records.
+- Groups existing backup pauses by character to avoid repeated full-list selection scans.
 - Reuses the grouped character view between frames and skips controls in rows outside the visible window.
 - Uses standard Dalamud logging for lifecycle, connection changes, actions, and errors, with rate-limited slow-step diagnostics.
 - Opens the main window with `/syncmanager` and settings with `/syncmanager config`.

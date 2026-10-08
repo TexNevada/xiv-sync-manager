@@ -87,7 +87,11 @@ public sealed partial class SyncCoordinator
     {
         this.configuration = configuration;
         // An interrupted restoration must finish even when automatic management is enabled again.
-        foreach (var owned in configuration.OwnedPauses.Values) owned.RestoreRequested = true;
+        foreach (var (key, owned) in configuration.OwnedPauses)
+        {
+            RememberUnconfirmedPause(key, owned);
+            owned.RestoreRequested = true;
+        }
         configuration.Save();
     }
 
@@ -370,6 +374,7 @@ public sealed partial class SyncCoordinator
         foreach (var pair in Pairs)
         {
             ReconcileLateMediaChanges(pair);
+            ReconcileLatePauses(pair);
             if (operations.ContainsKey(pair.Key) || mediaOperations.ContainsKey(pair.Key)
                 || !configuration.OwnedPauses.TryGetValue(pair.Key, out var owned)) continue;
             ReconcileMediaChange(pair, owned);
@@ -400,7 +405,7 @@ public sealed partial class SyncCoordinator
         && !mediaOperations.ContainsKey(pair.Key)
         && configuration.OwnedPauses.GetValueOrDefault(pair.Key)?.MediaChange == null
         && (stopping || operations.Count + mediaOperations.Count < MaxConcurrentOperations)
-        && (!retryAfter.TryGetValue(pair.Key, out var until) || DateTime.UtcNow >= until);
+        && (stopping || !retryAfter.TryGetValue(pair.Key, out var until) || DateTime.UtcNow >= until);
 
     private void StartPause(PairSnapshot pair)
     {
@@ -417,6 +422,12 @@ public sealed partial class SyncCoordinator
             configuration.OwnedPauses[pair.Key] = owned;
             created = true;
         }
+        var previousChange = owned.PauseChange;
+        if (!owned.LocalHold) owned.PauseChange = new()
+        {
+            CharacterIdentity = owned.CharacterIdentity, OriginalPermissions = owned.OriginalPermissions,
+            PausedPermissions = owned.PausedPermissions, PauseReason = owned.OriginalPauseReason,
+        };
         // An earlier save may have failed after inserting the in-memory record. Every
         // native pause attempt must persist its restoration record successfully first.
         try { configuration.Save(); }
@@ -425,6 +436,7 @@ public sealed partial class SyncCoordinator
             // No native request was sent. Do not let a later external pause matching
             // our prepared fingerprint be mistaken for a pause we actually requested.
             if (created) configuration.OwnedPauses.Remove(pair.Key);
+            else owned.PauseChange = previousChange;
             throw;
         }
         StartOperation(pair, true);
@@ -456,11 +468,14 @@ public sealed partial class SyncCoordinator
         }
         catch (Exception exception)
         {
-            // Synchronous native failures occur before a request is sent. Do not claim an external pause.
-            if (paused && exception is not System.Reflection.TargetInvocationException
-                && configuration.OwnedPauses.TryGetValue(pair.Key, out var owned) && !owned.LocalHold && !owned.Confirmed)
+            if (paused && configuration.OwnedPauses.TryGetValue(pair.Key, out var uncertain) && !uncertain.LocalHold)
             {
-                configuration.OwnedPauses.Remove(pair.Key);
+                if (exception is System.Reflection.TargetInvocationException) RememberUnconfirmedPause(pair.Key, uncertain);
+                else
+                {
+                    uncertain.PauseChange = null;
+                    if (!uncertain.Confirmed) configuration.OwnedPauses.Remove(pair.Key);
+                }
                 configuration.Save();
             }
             RecordError(pair.Key, exception);
@@ -479,8 +494,8 @@ public sealed partial class SyncCoordinator
             }
             if (operation.Task.IsFaulted || operation.Task.IsCanceled)
             {
-                operations.Remove(key);
-                RecordError(key, operation.Task.Exception?.GetBaseException() ?? new OperationCanceledException("Pause operation was canceled."));
+                RetainUnconfirmedOperation(key, operation, operation.Task.Exception?.GetBaseException()
+                    ?? new OperationCanceledException("Pause operation was canceled."));
                 continue;
             }
 
@@ -495,6 +510,7 @@ public sealed partial class SyncCoordinator
                     if (operation.Paused)
                     {
                         owned.Confirmed = true;
+                        owned.PauseChange = null;
                         ReapplyRemainingRoute(pair);
                     }
                     else
@@ -510,9 +526,24 @@ public sealed partial class SyncCoordinator
                 }
             }
             if (DateTime.UtcNow < operation.Deadline) continue;
-            operations.Remove(key);
-            RecordError(key, new TimeoutException("The sync plugin did not confirm the pause change. The saved restoration record was retained."));
+            RetainUnconfirmedOperation(key, operation,
+                new TimeoutException("The sync plugin did not confirm the pause change. The saved restoration record was retained."));
         }
+    }
+
+    private void RetainUnconfirmedOperation(string key, PendingOperation operation, Exception exception)
+    {
+        operations.Remove(key);
+        try
+        {
+            if (operation.Paused && configuration.OwnedPauses.TryGetValue(key, out var owned))
+            {
+                RememberUnconfirmedPause(key, owned);
+                configuration.Save();
+            }
+        }
+        // Observe native task failures and retain their retry delay even if this save fails.
+        finally { RecordError(key, exception); }
     }
 
     private void ReapplyRemainingRoute(PairSnapshot suppressed)
@@ -796,7 +827,7 @@ public sealed partial class SyncCoordinator
             refresh = null;
             queuedMedia.Clear();
             foreach (var owned in configuration.OwnedPauses.Values) owned.RestoreRequested = true;
-            configuration.Save();
+            ShutdownStep(configuration.Save, "save restoration intent");
             pending = operations.Values.Select(o => o.Task).Concat(connectionOperations.Values.Select(o => o.Task))
                 .Concat(mediaOperations.Values.Select(o => o.Task)).ToArray();
         }
@@ -807,31 +838,45 @@ public sealed partial class SyncCoordinator
         {
             lock (SyncRoot)
             {
-                Pairs = adapters.SelectMany(a => a.Refresh(Plugin.PluginInterface.InstalledPlugins)).ToArray();
-                FinishConnections();
-                FinishOperations();
-                FinishMediaOperations();
-                ObserveExternalChanges();
-                foreach (var pair in localHolds.Values.ToArray())
+                ShutdownStep(() => Pairs = adapters.SelectMany(a => a.Refresh(Plugin.PluginInterface.InstalledPlugins)).ToArray(), "refresh syncs");
+                ShutdownStep(FinishConnections, "confirm connections");
+                ShutdownStep(FinishOperations, "confirm pause changes");
+                ShutdownStep(FinishMediaOperations, "confirm media changes");
+                ShutdownStep(ObserveExternalChanges, "reconcile permissions");
+                // Releasing our source-scoped holds is safe even if storage is unavailable.
+                // Include reloaded records and tracked old pair instances, then isolate failures.
+                var held = localHolds.Values.Concat(Pairs.Where(p => p.Adapter.LocalHolds
+                    && configuration.OwnedPauses.GetValueOrDefault(p.Key)?.LocalHold == true))
+                    .DistinctBy(p => p.Pair, ReferenceEqualityComparer.Instance).ToArray();
+                foreach (var pair in held)
                 {
                     try
                     {
                         pair.Adapter.ReleaseLocalHold(pair);
-                        configuration.OwnedPauses.Remove(pair.Key);
                         operations.Remove(pair.Key);
                     }
                     catch (Exception exception) { RecordError(pair.Key, exception); }
                 }
                 foreach (var pair in Pairs)
-                    if (configuration.OwnedPauses.TryGetValue(pair.Key, out var owned)) StartRestore(pair, owned);
-                configuration.Save();
+                    if (configuration.OwnedPauses.TryGetValue(pair.Key, out var owned) && !owned.LocalHold)
+                        ShutdownStep(() => StartRestore(pair, owned), "restore a server pause");
+                ShutdownStep(configuration.Save, "save cleanup results");
                 pending = operations.Values.Select(o => o.Task).Concat(connectionOperations.Values.Select(o => o.Task))
                     .Concat(mediaOperations.Values.Select(o => o.Task)).ToArray();
             }
         }).ConfigureAwait(false);
         try { await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
         catch (Exception exception) { Plugin.Log.Warning(exception, "[Lifecycle] Restoration will be retried when the manager is loaded again."); }
-        // Native records remain until the next load verifies the server's resulting state.
+        // Records remain until the next load verifies the server state or released local holds.
+    }
+
+    private static void ShutdownStep(Action action, string step)
+    {
+        try { action(); }
+        catch (Exception exception)
+        {
+            Plugin.Log.Warning(exception, "[Lifecycle] Could not {Step}; continuing cleanup and retaining restoration records.", step);
+        }
     }
 
     private sealed record PendingOperation(Task Task, bool Paused, DateTime Deadline);

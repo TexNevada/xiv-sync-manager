@@ -18,6 +18,7 @@ var config = new Configuration
     AutomaticExceptions = ["other"],
     CharacterPauses = ["Character"],
     LateMediaChanges = new() { ["pair"] = [new() { After = "late", OriginalAfter = "original" }] },
+    LatePauseChanges = new() { ["pair"] = [new() { PausedPermissions = "late pause" }] },
     ObservedCharacters = new() { ["pair"] = new() { Identity = "Character", Ident = "verified" } },
     DuplicateCharacters = new() { ["Character"] = new() { Routes = new() { ["pair"] = SyncProvider.Lightless } } },
     CharacterIndexActivity = new() { ["Character"] = new() { TrackingStartedUtc = DateTime.UtcNow } },
@@ -25,6 +26,7 @@ var config = new Configuration
     {
         CharacterIdentity = "Character", OriginalPermissions = "before", PausedPermissions = "paused",
         MediaChange = new() { Before = "before", After = "after", OriginalAfter = "restored media" },
+        PauseChange = new() { PausedPermissions = "pending pause" },
     } },
 };
 var snapshot = config.CreateSnapshot();
@@ -43,6 +45,9 @@ config.OwnedPauses["pair"].OriginalPermissions = "changed";
 config.OwnedPauses["pair"].MediaChange!.After = "changed";
 config.LateMediaChanges["pair"][0].After = "changed";
 config.LateMediaChanges["pair"].Add(new());
+config.LatePauseChanges["pair"][0].PausedPermissions = "changed";
+config.LatePauseChanges["pair"].Add(new());
+config.OwnedPauses["pair"].PauseChange!.PausedPermissions = "changed";
 Assert(snapshot.AutomaticManagement && snapshot.StaleIndexRetention == IndexRetention.Days60, "Snapshot retains scalar settings");
 Assert(snapshot.Priority.Count == 3 && snapshot.PreferredProviders["Character"] == SyncProvider.Lightless, "Priority and preferred syncs are independent");
 Assert(snapshot.SectionExpanded["Online"] && snapshot.ManualPauses.Contains("pair")
@@ -54,6 +59,9 @@ Assert(snapshot.OwnedPauses["pair"].OriginalPermissions == "before"
     && snapshot.OwnedPauses["pair"].MediaChange!.After == "after", "Restoration and pending media records are independent");
 Assert(snapshot.LateMediaChanges["pair"].Count == 1 && snapshot.LateMediaChanges["pair"][0].After == "late",
     "Late media recovery lists and records are independent");
+Assert(snapshot.LatePauseChanges["pair"].Count == 1 && snapshot.LatePauseChanges["pair"][0].PausedPermissions == "late pause",
+    "Late pause recovery lists and records are independent");
+Assert(snapshot.OwnedPauses["pair"].PauseChange!.PausedPermissions == "pending pause", "Pending pause requests are independent");
 foreach (var property in typeof(Configuration).GetProperties())
 {
     var live = property.GetValue(config);

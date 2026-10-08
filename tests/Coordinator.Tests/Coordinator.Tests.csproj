@@ -7,6 +7,7 @@
     <Compile Include="../../src/SyncModels.cs" Link="SyncModels.cs" />
     <Compile Include="../../src/SyncCoordinator.cs" Link="SyncCoordinator.cs" />
     <Compile Include="../../src/SyncCoordinator.Media.cs" Link="SyncCoordinator.Media.cs" />
+    <Compile Include="../../src/SyncCoordinator.Recovery.cs" Link="SyncCoordinator.Recovery.cs" />
     <Compile Include="../../src/Configuration.cs" Link="Configuration.cs" />
     <Compile Include="../../src/ConfigurationSaveQueue.cs" Link="ConfigurationSaveQueue.cs" />
     <Compile Include="../../src/PerformanceDiagnostics.cs" Link="PerformanceDiagnostics.cs" />
