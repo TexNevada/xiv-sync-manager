@@ -18,7 +18,7 @@ public sealed partial class MainWindow : Window
     private string search = string.Empty;
     private static readonly Vector4 ConnectedGreen = new(0.5f, 0.85f, 0.6f, 1);
 
-    public MainWindow(Plugin plugin) : base("XIV Sync Manager - Saves you data & Bandwidth###XivSyncManagerMain")
+    public MainWindow(Plugin plugin) : base("XIV Sync Manager###XivSyncManagerMain")
     {
         this.plugin = plugin;
         TitleBarButtons =
