@@ -1,5 +1,23 @@
 # XIV Sync Manager
 
+**Using more than one sync plugin? Let XIV Sync Manager handle the duplicate syncing for you.**
+
+When the same player is syncing through PlayerSync, Lightless, and Snowcloak, XIV Sync Manager can automatically keep your chosen plugin active and pause that player in the others. You choose your preferred order—or pick a different plugin for a specific player—and the manager handles the switching.
+
+If your chosen plugin disconnects, it can switch to another available plugin.
+
+You can also pause a player across all supported plugins, control synced sounds, animations, and visual effects, and see your remembered players in one list. Your choices stay saved between sessions, and automatic management only starts when you turn it on.
+
+I made this for my own use and decided to share it with anyone who finds it helpful. **It's free and open source. I'm not asking for money, and it doesn't send me your data or usage information.** Your settings and remembered player list stay on your computer.
+
+**Yes, this project is made with AI.** I understand that some people aren't comfortable with that, and that's fine. Using it is entirely optional. If it isn't for you, there's no pressure to install it.
+
+All code is manually audited, security reviewed & has to go through a human approval before going to the main branch. It’s still in alpha, so feedback is appreciated. Tell me what works, what feels awkward, or what could make it more useful for you.
+
+[Get XIV Sync Manager](https://github.com/TexNevada/xiv-sync-manager) · [Join the Discord](https://discord.gg/EM2Eth5rd8) · [Share feedback](https://github.com/TexNevada/xiv-sync-manager/issues)
+
+---
+
 > **Alpha test release:** Features and sync integrations are still being validated in game.
 
 A Dalamud plugin for managing characters synchronized through Lightless Sync, Snowcloak, and PlayerSync.
