@@ -23,14 +23,18 @@ public sealed partial class SyncCoordinator
         lock (SyncRoot)
         {
             if (stopping || kind is not (MediaKind.Animations or MediaKind.Sounds or MediaKind.Vfx)) return;
+            var queued = 0;
             // Queue a batch so large global changes use the same bounded request budget as pauses.
             foreach (var pair in pairs.DistinctBy(p => p.Key))
             {
                 if (!CanChangeMedia(pair)) continue;
                 if (pair.Media.Disabled.HasFlag(kind) == disabled) continue;
                 queuedMedia[pair.Key] = new(pair.Pair, kind, disabled, pair.Media.Disabled.HasFlag(kind));
+                queued++;
                 mediaErrors.Remove(pair.Key);
             }
+            if (queued > 0)
+                Plugin.Log.Info("[Media] Queued {Action} {Kind} for {PairCount} pairs.", disabled ? "pause" : "resume", kind, queued);
             RefreshSoon();
         }
     }
@@ -138,7 +142,7 @@ public sealed partial class SyncCoordinator
     {
         var cause = ReflectionAccess.Unwrap(exception);
         mediaErrors[key] = cause.Message;
-        Plugin.Log.Warning(cause, "Could not change pair media permissions.");
+        Plugin.Log.Warning(cause, "[Media] Could not change {Provider} pair permissions.", ParseProvider(key)?.DisplayName() ?? "unknown sync");
     }
 
     private void UpdateAudioHistory()

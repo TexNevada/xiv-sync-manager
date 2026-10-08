@@ -61,12 +61,16 @@ public sealed class Plugin : IAsyncDalamudPlugin
         {
             HelpMessage = "Open XIV Sync Manager to manage duplicate characters, service priority, and themes.",
         });
+        Log.Info("[Lifecycle] Loaded version {Version}; automatic management {Management}; {IndexedCharacters} indexed duplicates.",
+            typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "unknown", Configuration.AutomaticManagement,
+            Configuration.DuplicateCharacters.Count);
     }
 
     public Task LoadAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public async ValueTask DisposeAsync()
     {
+        Log.Info("[Lifecycle] Unloading; requesting restoration of manager pauses.");
         await Framework.RunOnFrameworkThread(() =>
         {
             Framework.Update -= Coordinator.Update;
@@ -77,6 +81,8 @@ public sealed class Plugin : IAsyncDalamudPlugin
             windows.RemoveAllWindows();
         }).ConfigureAwait(false);
         await Coordinator.StopAsync().ConfigureAwait(false);
+        await Configuration.FlushSavesAsync().ConfigureAwait(false);
+        Log.Info("[Lifecycle] Unloaded; {PendingRestorations} restoration records retained.", Configuration.OwnedPauses.Count);
     }
 
     private void DrawWindows()

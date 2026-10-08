@@ -85,6 +85,8 @@
 - Applies styling only to this plugin's windows.
 - Checks plugin connections and player sync states automatically once per second.
 - Spreads refresh work across framework frames with a cooperative 2 ms budget and caches reflection lookups to reduce refresh hitches.
+- Saves routine index updates in the background while keeping restoration saves synchronous and ordered.
+- Uses standard Dalamud logging for lifecycle, connection changes, actions, and errors, with rate-limited slow-step diagnostics.
 - Opens the main window with `/syncmanager` and settings with `/syncmanager config`.
 - Provides a custom Dalamud repository manifest and release ZIP packaging for publishing.
 - Labels the plugin as an alpha test release.

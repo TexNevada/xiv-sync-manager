@@ -46,6 +46,9 @@ jobs:
       - name: Check index retention
         if: steps.plan.outputs.publish == 'true'
         run: dotnet run --project tests/IndexRetention.Tests --configuration Release
+      - name: Check configuration saves
+        if: steps.plan.outputs.publish == 'true'
+        run: dotnet run --project tests/ConfigurationSave.Tests --configuration Release
       - name: Publish package and prepare installer feed
         if: steps.plan.outputs.feed == 'true'
         run: python scripts/release.py publish

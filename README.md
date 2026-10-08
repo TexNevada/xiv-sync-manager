@@ -112,9 +112,9 @@ Implementation references in this repository:
 - [Selection rules](src/SyncModels.cs): preferred syncs, priority, and fallback selection.
 - [Main window](src/Windows/MainWindow.cs), [settings](src/Windows/SettingsWindow.cs), and [themes](src/ThemeCatalog.cs): current controls and styling.
 
-## Index retention checks
+## Configuration checks
 
-Run `dotnet run --project tests/IndexRetention.Tests --configuration Release` to check expiry boundaries, online renewal, migration, persistence, and removal of stale associations without loading the game. Pull request and release workflows run these checks too.
+Run `dotnet run --project tests/IndexRetention.Tests --configuration Release` to check expiry boundaries, online renewal, migration, persistence, and removal of stale associations without loading the game. Run `dotnet run --project tests/ConfigurationSave.Tests --configuration Release` to check independent save snapshots, background writes, coalescing, failure recovery, and ordering with synchronous restoration saves. Pull request and release workflows run both sets of checks.
 
 ## Identity and restoration
 
@@ -124,7 +124,7 @@ The duplicate cache is stored in the manager's own Dalamud configuration. Known 
 
 **Delete stale indexed characters after** offers **None (Does not delete index data)** (default), **30 days**, **60 days**, **90 days**, **180 days**, and **1 year** (a calendar year). Each indexed character has a saved UTC tracking-start timestamp and last-seen-online timestamp. Any associated sync reporting `IsOnline` renews the character's activity, including while out of view or in another location. Nearby presence, visibility, offline observations, and profile checks alone do not renew it. Tracking continues with None selected, so enabling expiry later uses the accumulated history. Existing entries without history start tracking when this update first runs; their last-online time stays unknown until a sync reports them online.
 
-Expiry checks run once per minute while the manager is running, after refreshing online activity. Entries expire only after the selected period has been exceeded; time while the game is closed also counts. Deletion removes both the duplicate entry and all of its cached character associations, including single-service observations, so rebuilding the cache cannot resurrect stale data. With expiry enabled, new associations require the sync to report Online; Nearby alone cannot recreate an expired entry. Expiry preserves priorities, preferred syncs, and saved manual pause choices. Manager-created pauses are requested for restoration, and their records remain until restoration is confirmed. Online transitions and index changes save immediately; continuously online timestamps save once per minute and on clean plugin shutdown. An abrupt termination can lose up to a minute of recent tracking.
+Expiry checks run once per minute while the manager is running, after refreshing online activity. Entries expire only after the selected period has been exceeded; time while the game is closed also counts. Deletion removes both the duplicate entry and all of its cached character associations, including single-service observations, so rebuilding the cache cannot resurrect stale data. With expiry enabled, new associations require the sync to report Online; Nearby alone cannot recreate an expired entry. Expiry preserves priorities, preferred syncs, and saved manual pause choices. Manager-created pauses are requested for restoration, and their records remain until restoration is confirmed. Online transitions and index changes queue a background save immediately; continuously online timestamps queue saves once per minute. Pending routine saves combine into the newest complete snapshot. Clean plugin shutdown saves current activity and waits for the background writer. An abrupt termination can lose recent tracking that has not finished saving, including up to a minute of continuously online activity.
 
 Character pause choices and preferred syncs are stored by character name plus home world. Legacy individual choices and restoration records are scoped to the service, server URI, local account UID, and remote pair UID. The manager saves a restoration record before sending a pause request and waits for the plugin's resulting state to confirm it. Operation errors are logged and appear under **Needs attention** when the affected pair is associated with a listed duplicate character. Records for missing pairs appear in the saved-pause reconnection count.
 
@@ -142,7 +142,17 @@ Sync refreshes start about once per second and spread pair reads and management 
 
 Reflection member and method lookups are cached by runtime type, including missing members, and permission contracts are validated once per type for each loaded sync instance. Duplicate history is rebuilt when character observations change rather than on every refresh. These changes reduce repeated reflection work and the single-frame bursts that can cause microstutters.
 
-The budget is cooperative: an individual native call, diagnostics pass, or configuration save can exceed it. In-game verification is still needed. After loading the rebuilt DLL, compare movement in the same busy area with the manager enabled and disabled, and check the Dalamud log for new `XivSyncManager.SyncCoordinator::Update` hitch warnings.
+Routine character-index and online-history writes use an independent configuration snapshot and a single background writer. This moves Dalamud's synchronous serialization/file-write wait off the framework thread for those updates. All saves are ordered so an older snapshot cannot overwrite a newer persisted restoration record. Saves needed before native pause or media requests remain synchronous. Configuration copying and native sync calls still run on the framework thread, and the update skips a frame if cleanup holds its coordination lock.
+
+The budget is cooperative: an individual native call, diagnostics pass, snapshot copy, or mandatory synchronous save can exceed it. In-game verification is still needed. After updating the plugin, compare movement in the same busy area with the manager enabled and disabled, and check the Dalamud log for new `XivSyncManager.SyncCoordinator::Update` hitch warnings.
+
+## Logging and hitch diagnosis
+
+The manager uses Dalamud's `IPluginLog`, which supplies the normal timestamp, severity, and `[XivSyncManager]` plugin prefix. Information messages cover load/unload, connection changes, and explicit management actions. Warnings report integration or operation failures; refresh exceptions use Error. Normal pair polling does not produce an Information message for each player or frame.
+
+`[Performance]` warnings report updates or configuration writes taking at least 10 ms, limited to one warning per 30 seconds for each diagnostic source. Update warnings include the longest completed refresh step, its duration, step count, pair/index counts, allocations on the current thread, and GC collection counts during the interval. Save warnings distinguish background writes from synchronous writes and include serialization and the file-write wait. A slow background write alone is not a framework-thread hitch. GC counts indicate overlap with collections elsewhere in the process and do not identify which plugin caused them.
+
+Dalamud's `[HITCH] Long XivSyncManager.SyncCoordinator::Update ... > 50ms` warning means the entire update callback exceeded its 50 ms threshold. The observed 61.892 ms event predates these step timings, so the existing log cannot identify its exact slow operation. Synchronous index saves were a confirmed blocking path in that callback and are now queued in the background. Future `[Performance]` entries help distinguish native reads, character association, pause requests, and mandatory saves when investigating another hitch.
 
 ## Building and loading
 

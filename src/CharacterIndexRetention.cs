@@ -8,18 +8,26 @@ public enum IndexRetention { None, Days30, Days60, Days90, Days180, OneYear }
 
 public sealed class IndexedCharacterActivity
 {
+    internal IndexedCharacterActivity Copy() => (IndexedCharacterActivity)MemberwiseClone();
     public DateTime TrackingStartedUtc { get; set; }
     public DateTime? LastSeenOnlineUtc { get; set; }
 }
 
 public sealed class CachedDuplicateCharacter
 {
+    internal CachedDuplicateCharacter Copy()
+    {
+        var copy = (CachedDuplicateCharacter)MemberwiseClone();
+        copy.Routes = new(Routes, StringComparer.Ordinal);
+        return copy;
+    }
     public string DisplayName { get; set; } = string.Empty;
     public Dictionary<string, SyncProvider> Routes { get; set; } = new(StringComparer.Ordinal);
 }
 
 public sealed class ObservedCharacter
 {
+    internal ObservedCharacter Copy() => (ObservedCharacter)MemberwiseClone();
     public string Identity { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string Ident { get; set; } = string.Empty;

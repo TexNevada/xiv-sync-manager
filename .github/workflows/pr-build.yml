@@ -38,6 +38,9 @@ jobs:
     - name: Check index retention
       run: dotnet run --project tests/IndexRetention.Tests --configuration Release
 
+    - name: Check configuration saves
+      run: dotnet run --project tests/ConfigurationSave.Tests --configuration Release
+
     - name: Build with dotnet
       run: dotnet build XivSyncManager.slnx --configuration Release -p:RestoreLockedMode=true
 

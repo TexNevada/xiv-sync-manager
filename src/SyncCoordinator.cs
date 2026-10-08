@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Plugin.Services;
@@ -22,7 +23,9 @@ public sealed partial class SyncCoordinator
     private readonly DuplicatePolicy duplicatePolicy = new();
     private HashSet<string> automaticPauses = new(StringComparer.Ordinal);
     private DateTime nextRefresh;
-    private IEnumerator<bool>? refresh;
+    private IEnumerator<string>? refresh;
+    private readonly PerformanceDiagnostics updateDiagnostics = new();
+    private readonly Dictionary<SyncProvider, (bool Available, bool Connected, string Description)> loggedProviderStates = [];
     private bool rebuildDuplicateCache = true;
     private DateTime nextIndexActivitySave;
     private DateTime nextIndexExpiryCheck;
@@ -67,10 +70,20 @@ public sealed partial class SyncCoordinator
 
     internal void Update(IFramework framework)
     {
-        lock (SyncRoot)
+        // Cleanup may hold the gate from another thread. Wait for the next frame instead of
+        // blocking the game's framework thread behind a configuration save or shutdown work.
+        if (!Monitor.TryEnter(SyncRoot)) return;
+        try
         {
             if (stopping || refresh == null && DateTime.UtcNow < nextRefresh) return;
             var started = Stopwatch.GetTimestamp();
+            var allocated = GC.GetAllocatedBytesForCurrentThread();
+            var gen0 = GC.CollectionCount(0);
+            var gen1 = GC.CollectionCount(1);
+            var gen2 = GC.CollectionCount(2);
+            var longestStep = TimeSpan.Zero;
+            var longestStepName = "Start refresh";
+            var steps = 0;
             try
             {
                 if (refresh == null)
@@ -78,10 +91,17 @@ public sealed partial class SyncCoordinator
                     nextRefresh = DateTime.UtcNow.AddSeconds(1);
                     refresh = Refresh().GetEnumerator();
                 }
-                var steps = 0;
                 do
                 {
-                    if (!refresh.MoveNext())
+                    var stepStarted = Stopwatch.GetTimestamp();
+                    var more = refresh.MoveNext();
+                    var stepElapsed = Stopwatch.GetElapsedTime(stepStarted);
+                    if (stepElapsed > longestStep)
+                    {
+                        longestStep = stepElapsed;
+                        longestStepName = more ? refresh.Current : "Finish refresh";
+                    }
+                    if (!more)
                     {
                         refresh.Dispose();
                         refresh = null;
@@ -96,12 +116,22 @@ public sealed partial class SyncCoordinator
                 refresh?.Dispose();
                 refresh = null;
                 nextRefresh = DateTime.UtcNow.AddSeconds(1);
-                Plugin.Log.Error(exception, "Could not refresh sync management.");
+                Plugin.Log.Error(exception, "[Refresh] Could not refresh sync management.");
+            }
+            finally
+            {
+                var elapsed = Stopwatch.GetElapsedTime(started);
+                if (updateDiagnostics.ShouldReport(elapsed))
+                    PerformanceDiagnostics.Report("Framework update", elapsed, GC.GetAllocatedBytesForCurrentThread() - allocated,
+                        GC.CollectionCount(0) - gen0, GC.CollectionCount(1) - gen1, GC.CollectionCount(2) - gen2,
+                        $"Longest step: {longestStepName} ({longestStep.TotalMilliseconds:F2} ms); steps: {steps}; " +
+                        $"pairs: {Pairs.Count}; indexed duplicates: {configuration.DuplicateCharacters.Count}. The 2 ms budget cannot pre-empt a running step.");
             }
         }
+        finally { Monitor.Exit(SyncRoot); }
     }
 
-    private IEnumerable<bool> Refresh()
+    private IEnumerable<string> Refresh()
     {
         var plugins = Plugin.PluginInterface.InstalledPlugins.ToArray();
         var pairs = new List<PairSnapshot>();
@@ -109,21 +139,25 @@ public sealed partial class SyncCoordinator
         {
             var providerPairs = new List<PairSnapshot>();
             foreach (var step in adapter.RefreshIncrementally(plugins, providerPairs)) yield return step;
+            LogProviderState(adapter.Status);
             pairs.AddRange(providerPairs);
-            yield return true;
+            yield return "Combine provider pairs";
         }
         Pairs = pairs.ToArray();
         FinishConnections();
+        yield return "Finish connection changes";
         AssociateCharacters();
-        yield return true;
+        yield return "Associate characters and update index";
         FinishOperations();
-        yield return true;
+        yield return "Confirm pause and resume changes";
         UpdateAudioHistory();
+        yield return "Update recent audio";
         FinishMediaOperations();
+        yield return "Confirm media changes";
         ObserveExternalChanges();
-        yield return true;
+        yield return "Observe external permission changes";
         automaticPauses = duplicatePolicy.GetAutomaticPauses(Pairs, configuration, Providers, visibleCharacters);
-        yield return true;
+        yield return "Select automatic pauses";
 
         // Restore the selected fallback before requesting new pauses on its alternatives.
         foreach (var pair in Pairs)
@@ -135,7 +169,7 @@ public sealed partial class SyncCoordinator
             {
                 try { StartRestore(pair, owned); }
                 catch (Exception exception) { RecordError(pair.Key, exception); }
-                yield return true;
+                yield return "Request pause restoration";
             }
         }
         foreach (var pair in Pairs)
@@ -144,10 +178,21 @@ public sealed partial class SyncCoordinator
             if (!configuration.IsManuallyPaused(pair) && !automaticPauses.Contains(pair.Key)) continue;
             try { StartPause(pair); }
             catch (Exception exception) { RecordError(pair.Key, exception); }
-            yield return true;
+            yield return "Request character pause";
         }
         // Restore/fail over before spending the remaining request budget on a large media batch.
         StartQueuedMedia();
+        yield return "Start queued media changes";
+    }
+
+    private void LogProviderState(ProviderStatus status)
+    {
+        var state = (status.Available, status.Connected, status.Description);
+        if (loggedProviderStates.TryGetValue(status.Provider, out var previous) && previous == state) return;
+        loggedProviderStates[status.Provider] = state;
+        if (status.Description.StartsWith("Integration unavailable", StringComparison.Ordinal))
+            Plugin.Log.Warning("[Connections] {Provider}: {Description}", status.Provider.DisplayName(), status.Description);
+        else Plugin.Log.Info("[Connections] {Provider}: {Description}", status.Provider.DisplayName(), status.Description);
     }
 
     private void AssociateCharacters()
@@ -209,7 +254,7 @@ public sealed partial class SyncCoordinator
         }
         if (changed || indexActivityDirty && now >= nextIndexActivitySave)
         {
-            configuration.Save();
+            configuration.SaveBackground();
             indexActivityDirty = false;
             nextIndexActivitySave = now.AddMinutes(1);
         }
@@ -441,7 +486,7 @@ public sealed partial class SyncCoordinator
     private static void TryReapply(PairSnapshot pair)
     {
         try { pair.Adapter.Reapply(pair); }
-        catch (Exception exception) { Plugin.Log.Warning(ReflectionAccess.Unwrap(exception), "Could not reapply the remaining sync route's appearance."); }
+        catch (Exception exception) { Plugin.Log.Warning(ReflectionAccess.Unwrap(exception), "[Management] Could not reapply the remaining sync's appearance."); }
     }
 
     private void RecordError(string key, Exception exception)
@@ -449,7 +494,8 @@ public sealed partial class SyncCoordinator
         var cause = ReflectionAccess.Unwrap(exception);
         errors[key] = cause.Message;
         retryAfter[key] = DateTime.UtcNow.AddSeconds(30);
-        Plugin.Log.Warning(cause, "Could not change sync pair state. Retrying after 30 seconds.");
+        Plugin.Log.Warning(cause, "[Management] Could not change {Provider} pair state. Retrying after 30 seconds.",
+            ParseProvider(key)?.DisplayName() ?? "unknown sync");
     }
 
     public string? ErrorFor(PairSnapshot pair) => errors.GetValueOrDefault(pair.Key);
@@ -475,7 +521,7 @@ public sealed partial class SyncCoordinator
             {
                 var cause = ReflectionAccess.Unwrap(exception);
                 profileErrors[pair.Key] = cause.Message;
-                Plugin.Log.Warning(cause, "Could not open the sync plugin's profile viewer.");
+                Plugin.Log.Warning(cause, "[Profiles] Could not open {Provider}'s profile viewer.", pair.Provider.DisplayName());
                 RefreshSoon();
                 return cause.Message;
             }
@@ -510,6 +556,7 @@ public sealed partial class SyncCoordinator
                 connectionOperations[provider] = new(adapter, adapter.SetConnected(connected), connected,
                     DateTime.UtcNow.AddSeconds(connected ? 30 : 20));
                 connectionErrors.Remove(provider);
+                Plugin.Log.Info("[Connections] {Action} requested for {Provider}.", connected ? "Reconnect" : "Disconnect", provider.DisplayName());
             }
             catch (Exception exception) { RecordConnectionError(provider, exception); }
             RefreshSoon();
@@ -533,6 +580,7 @@ public sealed partial class SyncCoordinator
                 {
                     connectionOperations.Remove(provider);
                     connectionErrors.Remove(provider);
+                    Plugin.Log.Info("[Connections] {Provider} confirmed {State}.", provider.DisplayName(), operation.Connect ? "reconnection" : "disconnection");
                     continue;
                 }
                 if (DateTime.UtcNow < operation.Deadline) continue;
@@ -559,7 +607,7 @@ public sealed partial class SyncCoordinator
     {
         var cause = ReflectionAccess.Unwrap(exception);
         connectionErrors[provider] = cause.Message;
-        Plugin.Log.Warning(cause, "Could not change the connection for {Provider}.", provider.DisplayName());
+        Plugin.Log.Warning(cause, "[Connections] Could not change the connection for {Provider}.", provider.DisplayName());
     }
 
     public void SetKeepFallbackUntilReentry(bool enabled)
@@ -574,6 +622,7 @@ public sealed partial class SyncCoordinator
     {
         if (!Enum.IsDefined(retention)) return;
         configuration.StaleIndexRetention = retention;
+        Plugin.Log.Info("[Configuration] Stale index retention changed to {Retention}.", retention);
         nextIndexExpiryCheck = DateTime.MinValue;
         configuration.Save();
         RefreshSoon();
@@ -581,6 +630,7 @@ public sealed partial class SyncCoordinator
 
     public void SetAutomaticManagement(bool enabled)
     {
+        Plugin.Log.Info("[Management] Automatic management {State}.", enabled ? "enabled" : "disabled");
         configuration.AutomaticManagement = enabled;
         duplicatePolicy.ResetSelections();
         if (!enabled)
@@ -613,6 +663,8 @@ public sealed partial class SyncCoordinator
 
     public void SetCharacterPaused(DuplicateCharacter character, bool paused)
     {
+        Plugin.Log.Info("[Management] Character {Action} requested across {ProviderCount} identified sync plugins.",
+            paused ? "pause" : "resume", character.Providers.Count);
         duplicatePolicy.ForgetSelection(character.Identity);
         if (paused) configuration.CharacterPauses.Add(character.Identity);
         else configuration.CharacterPauses.Remove(character.Identity);
@@ -705,7 +757,7 @@ public sealed partial class SyncCoordinator
                 .Concat(mediaOperations.Values.Select(o => o.Task)).ToArray();
         }
         try { await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
-        catch (Exception exception) { Plugin.Log.Warning(exception, "Some sync requests are unfinished; pause restoration records have been retained."); }
+        catch (Exception exception) { Plugin.Log.Warning(exception, "[Lifecycle] Some sync requests are unfinished; pause restoration records have been retained."); }
 
         await Plugin.Framework.RunOnFrameworkThread(() =>
         {
@@ -734,7 +786,7 @@ public sealed partial class SyncCoordinator
             }
         }).ConfigureAwait(false);
         try { await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
-        catch (Exception exception) { Plugin.Log.Warning(exception, "Restoration will be retried when the manager is loaded again."); }
+        catch (Exception exception) { Plugin.Log.Warning(exception, "[Lifecycle] Restoration will be retried when the manager is loaded again."); }
         // Native records remain until the next load verifies the server's resulting state.
     }
 
