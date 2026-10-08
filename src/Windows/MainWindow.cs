@@ -390,7 +390,9 @@ public sealed partial class MainWindow : Window
         ImGui.TableSetupColumn("Preferred sync", ImGuiTableColumnFlags.WidthStretch, 1);
         ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthStretch, 1);
         var controlWidth = MathF.Max(80 * ImGuiHelpers.GlobalScale,
-            ImGui.CalcTextSize("Pause All").X + 2 * ImGui.GetStyle().FramePadding.X);
+            MathF.Max(ImGui.CalcTextSize("Pause All").X, ImGui.CalcTextSize("Resume").X)
+            + 2 * ImGui.GetStyle().FramePadding.X)
+            + ImGui.CalcTextSize("Media…").X + 2 * ImGui.GetStyle().FramePadding.X + ImGui.GetStyle().ItemSpacing.X;
         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthFixed, controlWidth);
         ImGui.TableHeadersRow();
         foreach (var character in characters) DrawCharacter(character);
@@ -451,12 +453,13 @@ public sealed partial class MainWindow : Window
             Tooltip("Retry this character's saved choice and enable automatic rules again. Existing external pauses are preserved.");
         }
         ImGui.TableNextColumn();
+        if (ImGui.Button("Media…")) ImGui.OpenPopup("characterMedia");
+        Tooltip("Pause or resume animations, sounds, and VFX for this character across identified syncs or for one plugin.");
+        ImGui.SameLine();
         if (ImGui.Button(paused ? "Resume" : "Pause All", new Vector2(-1, 0))) coordinator.SetCharacterPaused(character, !paused);
         Tooltip(paused
             ? "Release this character's manual pause. Automatic management keeps the preferred available sync active. Pauses made in the original sync plugins are preserved."
             : "Pause this character on every identified sync. This choice is saved even while offline.");
-        if (ImGui.Button("Media…", new Vector2(-1, 0))) ImGui.OpenPopup("characterMedia");
-        Tooltip("Pause or resume animations, sounds, and VFX for this character across identified syncs or for one plugin.");
         DrawMediaPopup("characterMedia", character.DisplayName, character.Pairs, character.Providers);
     }
 
