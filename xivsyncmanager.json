@@ -1,9 +1,9 @@
 [
   {
     "Author": "XIV Sync Manager contributors",
-    "Name": "XIV Sync Manager (Alpha) [Dev]",
+    "Name": "XIV Sync Manager (Alpha)",
     "InternalName": "XivSyncManager",
-    "AssemblyVersion": "0.0.1.9",
+    "AssemblyVersion": "0.0.1.0",
     "Description": "Alpha test release for in-game evaluation. Remember duplicate characters across Lightless Sync, Snowcloak, and PlayerSync. Pause individual characters, reorder service priority, and choose from twelve themes in one window.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/TexNevada/xiv-sync-manager",
@@ -18,12 +18,12 @@
     "LoadSync": false,
     "CanUnloadAsync": false,
     "LoadPriority": 0,
-    "Punchline": "Dev build: Alpha test: manage overlapping syncs and pause individual players.",
+    "Punchline": "Alpha test: manage overlapping syncs and pause individual players.",
     "AcceptsFeedback": true,
-    "DownloadLinkInstall": "https://github.com/TexNevada/xiv-sync-manager/releases/download/dev-v0.0.1.9/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/TexNevada/xiv-sync-manager/releases/download/dev-v0.0.1.9/latest.zip",
+    "DownloadLinkInstall": "https://github.com/TexNevada/xiv-sync-manager/releases/download/v0.0.1.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/TexNevada/xiv-sync-manager/releases/download/v0.0.1.0/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": 1791542333
+    "LastUpdate": 1791407850
   }
 ]
