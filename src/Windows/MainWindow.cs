@@ -50,7 +50,7 @@ public sealed partial class MainWindow : Window
     private void DrawContents()
     {
         DrawManagementButton();
-        Tooltip("Click to turn automatic duplicate management on or off. Green means on; red means off.\nKeeps one eligible sync active per character. If it disconnects for more than five seconds, an available fallback takes over. Settings controls whether to keep that fallback until the character leaves Nearby and returns.\n\nLightless and PlayerSync pauses can affect both directions. Agree on a preferred sync with the other player.");
+        Tooltip("Click to turn automatic duplicate management on or off. Green means on; red means off.\nTurning it off keeps existing pauses in place. Use Resume for a character to release them, or turn management back on to apply your saved rules.\nKeeps one eligible sync active per character. If it disconnects for more than five seconds, an available fallback takes over. Settings controls whether to keep that fallback until the character leaves Nearby and returns.\n\nLightless and PlayerSync pauses can affect both directions. Agree on a preferred sync with the other player.");
         ImGui.Spacing();
         DrawPriority();
         ImGui.Spacing();
@@ -486,9 +486,10 @@ public sealed partial class MainWindow : Window
         if (ImGui.Button("Media…")) ImGui.OpenPopup("characterMedia");
         Tooltip("Pause or resume animations, sounds, and VFX for this character across identified syncs or for one plugin.");
         ImGui.SameLine();
-        if (ImGui.Button(paused ? "Resume" : "Pause All", new Vector2(-1, 0))) coordinator.SetCharacterPaused(character, !paused);
-        Tooltip(paused
-            ? "Release this character's manual pause. Automatic management keeps the preferred available sync active. Pauses made in the original sync plugins are preserved."
+        var canResume = coordinator.CanResumeCharacter(character);
+        if (ImGui.Button(canResume ? "Resume" : "Pause All", new Vector2(-1, 0))) coordinator.SetCharacterPaused(character, !canResume);
+        Tooltip(canResume
+            ? "Release this character's manual or retained manager pauses. If management is on, the preferred available sync stays active. Pauses made in the original sync plugins are preserved."
             : "Pause this character on every identified sync. This choice is saved even while offline.");
         DrawMediaPopup("characterMedia", character.DisplayName, character.Pairs, character.Providers);
     }

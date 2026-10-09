@@ -73,7 +73,7 @@
 - Attempts to reapply cached appearance data after pause/restoration when supported.
 - Shows operation progress, errors, and **Needs attention** with a Retry button.
 - Saves pause-restoration records and retries unfinished restoration after reconnection or reload.
-- Turning management Off releases automatic pauses while preserving manual choices.
+- Turning management Off keeps existing pauses in place and stops automatic pause/resume decisions. Resume releases a character's retained manager pauses; turning management On reapplies the saved rules.
 - Attempts to restore manager pauses when the plugin unloads.
 - **Settings gear:** opens settings beside the main window's title-bar controls.
 - **Stale index expiry:** None, 7/30/60/90/180 days, or one calendar year; defaults to 30 days for settings without a saved choice. Persists last-seen Online across reloads, independent of Nearby; removes expired character associations while retaining pause-restoration records and saved preferences. Existing entries begin tracking on upgrade.

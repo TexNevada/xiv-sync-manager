@@ -200,7 +200,7 @@ public sealed partial class SyncCoordinator
             if (connectionOperations.ContainsKey(pair.Provider)) continue;
             var wantsPause = configuration.IsManuallyPaused(pair) || automaticPauses.Contains(pair.Key);
             if (configuration.OwnedPauses.TryGetValue(pair.Key, out var owned)
-                && (owned.RestoreRequested || !wantsPause))
+                && (owned.RestoreRequested || configuration.AutomaticManagement && !wantsPause))
             {
                 try { StartRestore(pair, owned); }
                 catch (Exception exception) { RecordError(pair.Key, exception); }
@@ -314,9 +314,11 @@ public sealed partial class SyncCoordinator
             configuration.ObservedCharacters, configuration.DuplicateCharacters, configuration.StaleIndexRetention, now);
         if (expired.Count == 0) return false;
         foreach (var identity in expired) duplicatePolicy.ForgetSelection(identity);
-        // Keep responsibility for existing pauses until the service confirms their restoration.
-        foreach (var owned in configuration.OwnedPauses.Values.Where(o => expired.Contains(o.CharacterIdentity)))
-            owned.RestoreRequested = true;
+        // Expiring index data must not resume retained pauses while management is off.
+        // Ownership survives expiry so explicit cleanup or re-enabling can still restore them.
+        if (configuration.AutomaticManagement)
+            foreach (var owned in configuration.OwnedPauses.Values.Where(o => expired.Contains(o.CharacterIdentity)))
+                owned.RestoreRequested = true;
         foreach (var pair in Pairs.Where(p => p.CharacterIdentity != null && expired.Contains(p.CharacterIdentity)))
         {
             pair.CharacterIdentity = null;
@@ -708,11 +710,6 @@ public sealed partial class SyncCoordinator
         Plugin.Log.Info("[Management] Automatic management {State}.", enabled ? "enabled" : "disabled");
         configuration.AutomaticManagement = enabled;
         duplicatePolicy.ResetSelections();
-        if (!enabled)
-            foreach (var (key, owned) in configuration.OwnedPauses)
-                if (configuration.AutomaticExceptions.Contains(key)
-                    || (!configuration.ManualPauses.Contains(key) && !configuration.CharacterPauses.Contains(owned.CharacterIdentity)))
-                    owned.RestoreRequested = true;
         configuration.Save();
         RefreshSoon();
     }
@@ -735,6 +732,20 @@ public sealed partial class SyncCoordinator
     public bool IsCharacterPaused(DuplicateCharacter character) => configuration.CharacterPauses.Contains(character.Identity)
         || character.Pairs.Any(p => configuration.ManualPauses.Contains(p.Key))
         || configuration.DuplicateCharacters[character.Identity].Routes.Keys.Any(configuration.ManualPauses.Contains);
+
+    public bool CanResumeCharacter(DuplicateCharacter character)
+    {
+        if (IsCharacterPaused(character)) return true;
+        if (configuration.AutomaticManagement) return false;
+        foreach (var pair in character.Pairs)
+            if (IsRetained(pair.Key)) return true;
+        foreach (var key in configuration.DuplicateCharacters[character.Identity].Routes.Keys)
+            if (IsRetained(key)) return true;
+        return false;
+
+        bool IsRetained(string key) => configuration.OwnedPauses.TryGetValue(key, out var owned)
+            && !owned.RestoreRequested;
+    }
 
     public void SetCharacterPaused(DuplicateCharacter character, bool paused)
     {
