@@ -78,7 +78,7 @@ public sealed class ProviderStatus
     public bool CanDisconnect { get; init; }
     public bool CanReconnect { get; init; }
     public string ConnectionUnavailableReason { get; init; } = string.Empty;
-    public IntegrationReport Integrations { get; init; } = new([], "Waiting for the first check.");
+    public IntegrationReport Integrations { get; init; } = new([], "Fetching data.", Pending: true);
     public VramUsage Vram { get; init; } = VramUsage.Unavailable("Waiting for the first check.");
 }
 
@@ -109,11 +109,11 @@ public sealed record PluginIntegration(string Name, bool Required, string Featur
     };
 }
 
-public sealed record IntegrationReport(IReadOnlyList<PluginIntegration> Plugins, string? Notice = null)
+public sealed record IntegrationReport(IReadOnlyList<PluginIntegration> Plugins, string? Notice = null, bool Pending = false)
 {
     public int RequiredProblems => Plugins.Count(p => p.Required && p.NeedsAttention);
     public int OptionalProblems => Plugins.Count(p => !p.Required && p.NeedsAttention);
-    public bool Incomplete => Notice != null || Plugins.Any(p => p.State == IntegrationState.Unknown);
+    public bool Incomplete => Pending || Notice != null || Plugins.Any(p => p.State == IntegrationState.Unknown);
 }
 
 public sealed record DuplicateCharacter(string Identity, string DisplayName, bool Online,

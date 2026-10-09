@@ -227,7 +227,8 @@ public sealed partial class MainWindow : Window
         if (!plugin.Configuration.ShowIntegrationInfo || (plugin.Configuration.HideReadyIntegrationInfo && ready)) return;
         ImGui.SameLine();
         var requiredUnknown = report.Plugins.Any(p => p.Required && p.State == IntegrationState.Unknown);
-        var label = report.RequiredProblems > 0 ? $"Required: {report.RequiredProblems} need attention"
+        var label = report.Pending ? "Fetching data"
+            : report.RequiredProblems > 0 ? $"Required: {report.RequiredProblems} need attention"
             : requiredUnknown ? "Required: unable to check"
             : report.OptionalProblems > 0 ? $"Optional extras: {report.OptionalProblems} need attention"
             : report.Incomplete ? "Plugins: unable to check" : "Integrations";
