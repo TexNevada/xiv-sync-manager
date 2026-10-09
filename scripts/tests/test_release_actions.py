@@ -44,6 +44,30 @@ class ReleaseActionTests(unittest.TestCase):
     def plan_file(self):
         release.PLAN.write_text(json.dumps(self.plan), encoding='utf-8')
 
+    def test_plan_rejects_other_branches_and_tags_before_accessing_github(self):
+        for channel in ('dev', 'master'):
+            for ref in ('refs/heads/release/0.1.0.0', 'refs/heads/feature/settings',
+                        'refs/tags/v0.1.0.0', f'refs/heads/{"master" if channel == "dev" else "dev"}'):
+                with self.subTest(channel=channel, ref=ref), patch.dict(os.environ, {
+                    'RELEASE_CHANNEL': channel, 'GITHUB_REF': ref,
+                }), patch.object(release, 'api') as api:
+                    with self.assertRaisesRegex(ValueError, 'matching branch'):
+                        release.plan()
+                    api.assert_not_called()
+                    self.assertFalse(release.PLAN.exists())
+
+    def test_plan_accepts_only_matching_channel_branches(self):
+        for channel in ('dev', 'master'):
+            with self.subTest(channel=channel), patch.dict(os.environ, {
+                'RELEASE_CHANNEL': channel, 'GITHUB_REF': f'refs/heads/{channel}',
+                'GITHUB_OUTPUT': str(self.root / 'output'),
+            }), patch.object(release, 'project_version', return_value=VERSION), \
+                    patch.object(release, 'api', return_value=None):
+                release.plan()
+                result = json.loads(release.PLAN.read_text())
+                self.assertEqual(result['channel'], channel)
+                self.assertTrue(result['publish'])
+
     def simulate_run(self, *args):
         self.commands.append(args)
         if args[:3] == ('gh', 'release', 'download'):

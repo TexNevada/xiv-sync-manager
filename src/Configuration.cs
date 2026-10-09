@@ -23,12 +23,12 @@ public sealed class Configuration : IPluginConfiguration
     public bool KeepFallbackUntilReentry { get; set; } = true;
     public bool ShowIntegrationInfo { get; set; } = true;
     public bool HideReadyIntegrationInfo { get; set; } = true;
-    public IndexRetention StaleIndexRetention { get; set; } = IndexRetention.None;
+    public IndexRetention StaleIndexRetention { get; set; } = IndexRetention.Days30;
     public Dictionary<string, IndexedCharacterActivity> CharacterIndexActivity { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, bool> SectionExpanded { get; set; } = new(StringComparer.Ordinal)
     {
         ["Nearby"] = true,
-        ["Online"] = true,
+        ["Online"] = false,
         ["Offline"] = false,
     };
     // Replace defaults on load: reusing this list would append the saved order after the defaults.

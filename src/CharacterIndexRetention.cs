@@ -4,7 +4,8 @@ using System.Linq;
 
 namespace XivSyncManager;
 
-public enum IndexRetention { None, Days30, Days60, Days90, Days180, OneYear }
+// Values are persisted in configuration; keep existing choices stable when adding options.
+public enum IndexRetention { None = 0, Days30 = 1, Days60 = 2, Days90 = 3, Days180 = 4, OneYear = 5, Days7 = 6 }
 
 public sealed class IndexedCharacterActivity
 {
@@ -98,6 +99,7 @@ internal static class CharacterIndexRetention
         if (since == default || now <= since) return false;
         return retention switch
         {
+            IndexRetention.Days7 => now - since > TimeSpan.FromDays(7),
             IndexRetention.Days30 => now - since > TimeSpan.FromDays(30),
             IndexRetention.Days60 => now - since > TimeSpan.FromDays(60),
             IndexRetention.Days90 => now - since > TimeSpan.FromDays(90),

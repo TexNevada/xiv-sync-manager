@@ -76,7 +76,7 @@
 - Turning management Off releases automatic pauses while preserving manual choices.
 - Attempts to restore manager pauses when the plugin unloads.
 - **Settings gear:** opens settings beside the main window's title-bar controls.
-- **Stale index expiry:** None (default), 30/60/90/180 days, or one calendar year. Persists last-seen Online across reloads, independent of Nearby; removes expired character associations while retaining pause-restoration records and saved preferences. Existing entries begin tracking on upgrade.
+- **Stale index expiry:** None, 7/30/60/90/180 days, or one calendar year; defaults to 30 days for settings without a saved choice. Persists last-seen Online across reloads, independent of Nearby; removes expired character associations while retaining pause-restoration records and saved preferences. Existing entries begin tracking on upgrade.
 - **Clear cache:** removes indexed characters, observations, saved manual pauses, and cached error/retry state.
 - Cache clearing preserves priorities, preferred syncs, theme, section states, and settings; requests restoration of manager pauses.
 - Shows a red alpha-test warning below the cache-clear button.

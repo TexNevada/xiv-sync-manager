@@ -81,6 +81,7 @@ public sealed class Plugin : IAsyncDalamudPlugin
             PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettingsUi;
             CommandManager.RemoveHandler(CommandName);
             windows.RemoveAllWindows();
+            settingsWindow.Dispose();
         }).ConfigureAwait(false);
         try { await Coordinator.StopAsync().ConfigureAwait(false); }
         catch (Exception exception) { Log.Warning(exception, "[Lifecycle] Cleanup failed; saved restoration records will be retried on reload."); }

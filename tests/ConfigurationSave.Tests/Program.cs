@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using XivSyncManager;
 
 var checks = 0;
@@ -7,6 +8,15 @@ void Assert(bool condition, string message)
     if (!condition) throw new InvalidOperationException(message);
     checks++;
 }
+
+var defaults = new Configuration();
+Assert(defaults.StaleIndexRetention == IndexRetention.Days30, "New settings default to 30-day expiry");
+Assert(!defaults.SectionExpanded["Online"], "New settings keep Online collapsed");
+var oldSettings = JsonSerializer.Deserialize<Configuration>("{}")!;
+Assert(oldSettings.StaleIndexRetention == IndexRetention.Days30, "Settings without a saved retention choice use 30 days");
+var savedSettings = JsonSerializer.Deserialize<Configuration>("{\"StaleIndexRetention\":0,\"SectionExpanded\":{\"Online\":true}}")!;
+Assert(savedSettings.StaleIndexRetention == IndexRetention.None && savedSettings.SectionExpanded["Online"],
+    "Existing retention and section choices remain unchanged");
 
 var config = new Configuration
 {
