@@ -244,5 +244,6 @@ Assert(cacheManager.Characters.Count == 0 && cacheConfiguration.LateMediaChanges
     "Cache clearing invalidates the view and retains unsettled restoration history");
 
 await RecoveryChecks.Run(Assert);
+await ManagementChecks.Run(Assert);
 SelectionChecks.Run(Assert);
 Console.WriteLine($"Coordinator and native-adapter checks passed: {checks}; cached draw allocations: {drawAllocations}");
