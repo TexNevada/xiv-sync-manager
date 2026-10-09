@@ -13,6 +13,9 @@ permissions:
 
 jobs:
   release:
+    if: >-
+      (inputs.channel == 'dev' || inputs.channel == 'master') &&
+      github.ref == format('refs/heads/{0}', inputs.channel)
     runs-on: windows-2022
     env:
       GH_TOKEN: ${{ github.token }}

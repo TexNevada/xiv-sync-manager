@@ -117,7 +117,7 @@ public sealed partial class MainWindow : Window
         using var child = ImRaii.Child("DuplicateCharacters", Vector2.Zero, false);
         if (!child.Success) return;
         DrawList("Nearby", nearbyCharacters, defaultOpen: true);
-        DrawList("Online", onlineCharacters, defaultOpen: true);
+        DrawList("Online", onlineCharacters, defaultOpen: false);
         DrawList("Offline", offlineCharacters, defaultOpen: false);
         if (characters.Count == 0)
             ImGui.TextWrapped("Duplicates appear after the same character has been identified in view through two or more syncs. Once identified, they stay in this list when offline.");

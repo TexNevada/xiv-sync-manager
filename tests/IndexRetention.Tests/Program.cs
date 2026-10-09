@@ -12,7 +12,7 @@ void Assert(bool condition, string message)
 
 var periods = new[]
 {
-    (IndexRetention.Days30, 30), (IndexRetention.Days60, 60),
+    (IndexRetention.Days7, 7), (IndexRetention.Days30, 30), (IndexRetention.Days60, 60),
     (IndexRetention.Days90, 90), (IndexRetention.Days180, 180),
 };
 foreach (var (retention, days) in periods)
@@ -22,6 +22,13 @@ foreach (var (retention, days) in periods)
     Assert(CharacterIndexRetention.IsExpired(activity, retention, now.AddDays(days).AddTicks(1)), $"{retention}: delete after boundary");
     Assert(!CharacterIndexRetention.IsExpired(activity, retention, now.AddDays(-1)), $"{retention}: tolerate backward clock");
 }
+
+// Configurations written before the 7-day option used these numeric values.
+var savedChoices = new[] { IndexRetention.None, IndexRetention.Days30, IndexRetention.Days60,
+    IndexRetention.Days90, IndexRetention.Days180, IndexRetention.OneYear };
+for (var value = 0; value < savedChoices.Length; value++)
+    Assert(JsonSerializer.Deserialize<IndexRetention>(value.ToString()) == savedChoices[value],
+        $"Existing saved retention choice {value} survives the new option");
 
 var oldActivity = new IndexedCharacterActivity { TrackingStartedUtc = now.AddYears(-2) };
 Assert(!CharacterIndexRetention.IsExpired(oldActivity, IndexRetention.None, now), "None retains old entries");
