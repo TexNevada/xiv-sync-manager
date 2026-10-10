@@ -35,6 +35,7 @@
 - Separates required plugins from optional features and explains what each adds, its status, and how to fix missing, disabled, incompatible, or unready integrations.
 - Reads each loaded sync's own integration availability, including while disconnected; only lists known optional integrations exposed by that version.
 - Treats PlayerSync's Moodles and Loci as alternatives and explains the conflict when both report ready.
+- Offers verified project links and custom-repository URL copying for every listed integration, including ready plugins. Labels plugins available through Dalamud's official repository and keeps separate links/searches for Moodles and Loci. See [INTEGRATION-PLUGINS.md](INTEGRATION-PLUGINS.md).
 - Provides Find buttons that search Dalamud's plugin installer and updates plugin checks automatically.
 - Adds **Sync List** and **Statistics** tabs below the theme selector.
 - Keeps search and Nearby / Online / Offline duplicate lists in **Sync List**.
@@ -72,9 +73,10 @@
 - Attempts to reapply cached appearance data after pause/restoration when supported.
 - Shows operation progress, errors, and **Needs attention** with a Retry button.
 - Saves pause-restoration records and retries unfinished restoration after reconnection or reload.
-- Turning management Off releases automatic pauses while preserving manual choices.
+- Turning management Off keeps existing pauses in place and stops automatic pause/resume decisions. Resume releases a character's retained manager pauses; turning management On reapplies the saved rules.
 - Attempts to restore manager pauses when the plugin unloads.
 - **Settings gear:** opens settings beside the main window's title-bar controls.
+- **Stale index expiry:** None, 7/30/60/90/180 days, or one calendar year; defaults to 30 days for settings without a saved choice. Persists last-seen Online across reloads, independent of Nearby; removes expired character associations while retaining pause-restoration records and saved preferences. Existing entries begin tracking on upgrade.
 - **Clear cache:** removes indexed characters, observations, saved manual pauses, and cached error/retry state.
 - Cache clearing preserves priorities, preferred syncs, theme, section states, and settings; requests restoration of manager pauses.
 - Shows a red alpha-test warning below the cache-clear button.
@@ -83,6 +85,13 @@
 - Applies styling only to this plugin's windows.
 - Checks plugin connections and player sync states automatically once per second.
 - Spreads refresh work across framework frames with a cooperative 2 ms budget and caches reflection lookups to reduce refresh hitches.
+- Saves routine index updates in the background while keeping restoration saves synchronous and ordered.
+- Requires successful restoration-record saves before pause retries and retains recovery information for delayed pause and media responses.
+- Releases the manager's own Snowcloak holds during shutdown even if configuration saves fail, while retaining recovery records.
+- Groups existing backup pauses by character to avoid repeated full-list selection scans.
+- Reuses the grouped character view between frames and skips controls in rows outside the visible window.
+- Uses standard Dalamud logging for lifecycle, connection changes, actions, and errors, with rate-limited slow-step diagnostics.
 - Opens the main window with `/syncmanager` and settings with `/syncmanager config`.
 - Provides a custom Dalamud repository manifest and release ZIP packaging for publishing.
+- Opens master installer-feed updates as PRs for human review and merging; dev feed updates remain automatic.
 - Labels the plugin as an alpha test release.

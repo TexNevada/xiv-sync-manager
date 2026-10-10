@@ -8,6 +8,7 @@ using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
+using Dalamud.Utility;
 
 namespace XivSyncManager.Windows;
 
@@ -15,9 +16,15 @@ public sealed partial class MainWindow : Window
 {
     private readonly Plugin plugin;
     private string search = string.Empty;
+    private IReadOnlyList<DuplicateCharacter>? filteredSource;
+    private string filteredSearch = string.Empty;
+    private DuplicateCharacter[] nearbyCharacters = [];
+    private DuplicateCharacter[] onlineCharacters = [];
+    private DuplicateCharacter[] offlineCharacters = [];
+    private int filteredCount;
     private static readonly Vector4 ConnectedGreen = new(0.5f, 0.85f, 0.6f, 1);
 
-    public MainWindow(Plugin plugin) : base("XIV Sync Manager - Saves you data & Bandwidth###XivSyncManagerMain")
+    public MainWindow(Plugin plugin) : base("XIV Sync Manager###XivSyncManagerMain")
     {
         this.plugin = plugin;
         TitleBarButtons =
@@ -43,7 +50,7 @@ public sealed partial class MainWindow : Window
     private void DrawContents()
     {
         DrawManagementButton();
-        Tooltip("Click to turn automatic duplicate management on or off. Green means on; red means off.\nKeeps one eligible sync active per character. If it disconnects for more than five seconds, an available fallback takes over. Settings controls whether to keep that fallback until the character leaves Nearby and returns.\n\nLightless and PlayerSync pauses can affect both directions. Agree on a preferred sync with the other player.");
+        Tooltip("Click to turn automatic duplicate management on or off. Green means on; red means off.\nTurning it off keeps existing pauses in place. Use Resume for a character to release them, or turn management back on to apply your saved rules.\nKeeps one eligible sync active per character. If it disconnects for more than five seconds, an available fallback takes over. Settings controls whether to keep that fallback until the character leaves Nearby and returns.\n\nLightless and PlayerSync pauses can affect both directions. Agree on a preferred sync with the other player.");
         ImGui.Spacing();
         DrawPriority();
         ImGui.Spacing();
@@ -84,8 +91,18 @@ public sealed partial class MainWindow : Window
         ImGui.InputTextWithHint("##search", "Search character or world", ref search, 128);
 
         var characters = coordinator.Characters;
-        var filtered = characters.Where(c => string.IsNullOrWhiteSpace(search)
-            || c.DisplayName.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
+        var query = search.Trim();
+        if (!ReferenceEquals(filteredSource, characters) || filteredSearch != query)
+        {
+            var filtered = characters.Where(c => query.Length == 0
+                || c.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
+            nearbyCharacters = filtered.Where(c => c.Nearby).ToArray();
+            onlineCharacters = filtered.Where(c => c.Online && !c.Nearby).ToArray();
+            offlineCharacters = filtered.Where(c => !c.Online && !c.Nearby).ToArray();
+            filteredCount = filtered.Length;
+            filteredSource = characters;
+            filteredSearch = query;
+        }
         ImGui.TextDisabled($"{characters.Count} cached duplicate character(s)");
         if (coordinator.UnresolvedPauses > 0)
         {
@@ -99,12 +116,12 @@ public sealed partial class MainWindow : Window
 
         using var child = ImRaii.Child("DuplicateCharacters", Vector2.Zero, false);
         if (!child.Success) return;
-        DrawList("Nearby", filtered.Where(c => c.Nearby).ToArray(), defaultOpen: true);
-        DrawList("Online", filtered.Where(c => c.Online && !c.Nearby).ToArray(), defaultOpen: true);
-        DrawList("Offline", filtered.Where(c => !c.Online && !c.Nearby).ToArray(), defaultOpen: false);
+        DrawList("Nearby", nearbyCharacters, defaultOpen: true);
+        DrawList("Online", onlineCharacters, defaultOpen: false);
+        DrawList("Offline", offlineCharacters, defaultOpen: false);
         if (characters.Count == 0)
             ImGui.TextWrapped("Duplicates appear after the same character has been identified in view through two or more syncs. Once identified, they stay in this list when offline.");
-        else if (filtered.Length == 0)
+        else if (filteredCount == 0)
             ImGui.TextDisabled("No characters match your search.");
     }
 
@@ -152,7 +169,6 @@ public sealed partial class MainWindow : Window
             ImGui.EndTable();
         }
         ImGui.Spacing();
-        ImGui.TextWrapped("These figures estimate VRAM for synced character mods. Overlapping syncs and shared resources can be counted more than once. The sum can differ from actual GPU memory use. Your own character and the rest of the game are excluded.");
         ImGui.TextDisabled("Updates automatically as each plugin updates its estimates.");
         ImGui.Spacing();
         ImGui.Separator();
@@ -211,7 +227,8 @@ public sealed partial class MainWindow : Window
         if (!plugin.Configuration.ShowIntegrationInfo || (plugin.Configuration.HideReadyIntegrationInfo && ready)) return;
         ImGui.SameLine();
         var requiredUnknown = report.Plugins.Any(p => p.Required && p.State == IntegrationState.Unknown);
-        var label = report.RequiredProblems > 0 ? $"Required: {report.RequiredProblems} need attention"
+        var label = report.Pending ? "Fetching data"
+            : report.RequiredProblems > 0 ? $"Required: {report.RequiredProblems} need attention"
             : requiredUnknown ? "Required: unable to check"
             : report.OptionalProblems > 0 ? $"Optional extras: {report.OptionalProblems} need attention"
             : report.Incomplete ? "Plugins: unable to check" : "Integrations";
@@ -256,7 +273,7 @@ public sealed partial class MainWindow : Window
             }
         }
         ImGui.Separator();
-        ImGui.TextWrapped("Install, enable, or update plugins in Dalamud. Some extras need their own custom repository. Checks update automatically; this sync may take a few seconds to notice changes.");
+        ImGui.TextWrapped("Project opens the plugin's project and documentation. Copy repo URL copies its installation feed: add it in /xlsettings > Experimental > Custom Plugin Repositories and save, then use Find to search All Plugins. Checks update automatically; this sync may take a few seconds to notice changes.");
         if (ImGui.Button("Open plugin installer"))
             Plugin.PluginInterface.OpenPluginInstallerTo(PluginInstallerOpenKind.AllPlugins);
         ImGui.PopTextWrapPos();
@@ -279,16 +296,37 @@ public sealed partial class MainWindow : Window
             ImGui.TextUnformatted(integration.Name);
             ImGui.SameLine();
             ImGui.TextColored(colour, integration.StatusLabel);
-            if (integration.State != IntegrationState.Ready)
-            {
-                ImGui.SameLine();
-                if (ImGui.SmallButton("Find"))
-                    Plugin.PluginInterface.OpenPluginInstallerTo(PluginInstallerOpenKind.AllPlugins, integration.SearchTerm);
-                Tooltip("Open the Dalamud plugin installer. This does not install anything automatically.");
-            }
             ImGui.TextWrapped(integration.Feature);
             if (integration.State != IntegrationState.Ready || integration.Name == "Moodles / Loci")
                 ImGui.TextWrapped(integration.Explanation);
+            foreach (var resource in integration.Resources)
+            {
+                using var resourceId = ImRaii.PushId(resource.Name);
+                if (integration.Resources.Count > 1)
+                {
+                    ImGui.TextUnformatted(resource.Name);
+                    ImGui.SameLine();
+                }
+                if (ImGui.SmallButton("Project"))
+                    Util.OpenLink(resource.ProjectUrl);
+                Tooltip($"Open {resource.Name}'s project and documentation in your browser.\n{resource.ProjectUrl}");
+                if (resource.RepositoryUrl != null)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Copy repo URL"))
+                        ImGui.SetClipboardText(resource.RepositoryUrl);
+                    Tooltip($"Copy the custom repository URL for /xlsettings > Experimental > Custom Plugin Repositories. Add it and save before searching the installer.\n{resource.RepositoryUrl}");
+                }
+                if (integration.State != IntegrationState.Ready)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Find"))
+                        Plugin.PluginInterface.OpenPluginInstallerTo(PluginInstallerOpenKind.AllPlugins, resource.SearchTerm);
+                    Tooltip($"Search All Plugins for {resource.SearchTerm}. This does not install anything automatically.");
+                }
+                if (resource.RepositoryUrl == null)
+                    ImGui.TextWrapped("Available in Dalamud's official plugin repository.");
+            }
             ImGui.Spacing();
         }
     }
@@ -369,7 +407,9 @@ public sealed partial class MainWindow : Window
         ImGui.TableSetupColumn("Preferred sync", ImGuiTableColumnFlags.WidthStretch, 1);
         ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthStretch, 1);
         var controlWidth = MathF.Max(80 * ImGuiHelpers.GlobalScale,
-            ImGui.CalcTextSize("Pause All").X + 2 * ImGui.GetStyle().FramePadding.X);
+            MathF.Max(ImGui.CalcTextSize("Pause All").X, ImGui.CalcTextSize("Resume").X)
+            + 2 * ImGui.GetStyle().FramePadding.X)
+            + ImGui.CalcTextSize("Media…").X + 2 * ImGui.GetStyle().FramePadding.X + ImGui.GetStyle().ItemSpacing.X;
         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthFixed, controlWidth);
         ImGui.TableHeadersRow();
         foreach (var character in characters) DrawCharacter(character);
@@ -379,9 +419,22 @@ public sealed partial class MainWindow : Window
     private void DrawCharacter(DuplicateCharacter character)
     {
         var coordinator = plugin.Coordinator;
-        using var id = ImRaii.PushId(character.Identity);
-        ImGui.TableNextRow();
+        var audioLines = 0;
+        var needsRetry = false;
+        foreach (var pair in character.Pairs)
+        {
+            if (pair.Audio.Recent) audioLines++;
+            needsRetry |= coordinator.ErrorFor(pair) != null || plugin.Configuration.AutomaticExceptions.Contains(pair.Key);
+        }
+        var contentHeight = MathF.Max(ImGui.GetFrameHeight(),
+            ImGui.GetTextLineHeight() + audioLines * ImGui.GetTextLineHeightWithSpacing());
+        if (needsRetry) contentHeight = MathF.Max(contentHeight, ImGui.GetTextLineHeightWithSpacing() + ImGui.GetTextLineHeight());
+        // Audio and Retry create variable-height rows. Reserve each row's actual minimum
+        // height, but submit its controls only when it intersects the child window's clip.
+        ImGui.TableNextRow(ImGuiTableRowFlags.None, contentHeight + 2 * ImGui.GetStyle().CellPadding.Y);
         ImGui.TableNextColumn();
+        if (!ImGui.IsRectVisible(new Vector2(1, contentHeight))) return;
+        using var id = ImRaii.PushId(character.Identity);
         ImGui.TextUnformatted(character.DisplayName);
         Tooltip($"Known on: {string.Join(", ", character.Providers.Select(p => p.DisplayName()))}");
         foreach (var pair in character.Pairs.Where(p => p.Audio.Recent))
@@ -430,12 +483,14 @@ public sealed partial class MainWindow : Window
             Tooltip("Retry this character's saved choice and enable automatic rules again. Existing external pauses are preserved.");
         }
         ImGui.TableNextColumn();
-        if (ImGui.Button(paused ? "Resume" : "Pause All", new Vector2(-1, 0))) coordinator.SetCharacterPaused(character, !paused);
-        Tooltip(paused
-            ? "Release this character's manual pause. Automatic management keeps the preferred available sync active. Pauses made in the original sync plugins are preserved."
-            : "Pause this character on every identified sync. This choice is saved even while offline.");
-        if (ImGui.Button("Media…", new Vector2(-1, 0))) ImGui.OpenPopup("characterMedia");
+        if (ImGui.Button("Media…")) ImGui.OpenPopup("characterMedia");
         Tooltip("Pause or resume animations, sounds, and VFX for this character across identified syncs or for one plugin.");
+        ImGui.SameLine();
+        var canResume = coordinator.CanResumeCharacter(character);
+        if (ImGui.Button(canResume ? "Resume" : "Pause All", new Vector2(-1, 0))) coordinator.SetCharacterPaused(character, !canResume);
+        Tooltip(canResume
+            ? "Release this character's manual or retained manager pauses. If management is on, the preferred available sync stays active. Pauses made in the original sync plugins are preserved."
+            : "Pause this character on every identified sync. This choice is saved even while offline.");
         DrawMediaPopup("characterMedia", character.DisplayName, character.Pairs, character.Providers);
     }
 

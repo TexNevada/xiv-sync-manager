@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/SyncModels.cs" Link="SyncModels.cs" />
+    <Compile Include="../../src/SyncCoordinator.cs" Link="SyncCoordinator.cs" />
+    <Compile Include="../../src/SyncCoordinator.Media.cs" Link="SyncCoordinator.Media.cs" />
+    <Compile Include="../../src/SyncCoordinator.Recovery.cs" Link="SyncCoordinator.Recovery.cs" />
+    <Compile Include="../../src/Configuration.cs" Link="Configuration.cs" />
+    <Compile Include="../../src/ConfigurationSaveQueue.cs" Link="ConfigurationSaveQueue.cs" />
+    <Compile Include="../../src/PerformanceDiagnostics.cs" Link="PerformanceDiagnostics.cs" />
+    <Compile Include="../../src/CharacterIndexRetention.cs" Link="CharacterIndexRetention.cs" />
+    <Compile Include="../../src/SyncProvider.cs" Link="SyncProvider.cs" />
+    <Compile Include="../../src/Integrations/ReflectionSyncAdapter.cs" Link="Integrations/ReflectionSyncAdapter.cs" />
+    <Compile Include="../../src/Integrations/ReflectionAccess.cs" Link="Integrations/ReflectionAccess.cs" />
+    <Compile Include="../../src/Integrations/IntegrationDiagnostics.cs" Link="Integrations/IntegrationDiagnostics.cs" />
+    <Compile Include="../../src/Integrations/ProfileIntegration.cs" Link="Integrations/ProfileIntegration.cs" />
+    <Compile Include="../../src/Integrations/VramDiagnostics.cs" Link="Integrations/VramDiagnostics.cs" />
+    <Compile Include="../../src/Integrations/AudioDiagnostics.cs" Link="Integrations/AudioDiagnostics.cs" />
+  </ItemGroup>
+</Project>

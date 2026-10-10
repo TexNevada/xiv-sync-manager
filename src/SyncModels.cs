@@ -5,8 +5,6 @@ using System.Linq;
 
 namespace XivSyncManager;
 
-public enum SyncProvider { Lightless, Snowcloak, PlayerSync }
-
 public static class SyncProviderNames
 {
     public static string DisplayName(this SyncProvider provider) => provider switch
@@ -80,7 +78,7 @@ public sealed class ProviderStatus
     public bool CanDisconnect { get; init; }
     public bool CanReconnect { get; init; }
     public string ConnectionUnavailableReason { get; init; } = string.Empty;
-    public IntegrationReport Integrations { get; init; } = new([], "Waiting for the first check.");
+    public IntegrationReport Integrations { get; init; } = new([], "Fetching data.", Pending: true);
     public VramUsage Vram { get; init; } = VramUsage.Unavailable("Waiting for the first check.");
 }
 
@@ -91,9 +89,13 @@ public sealed record VramUsage(long? Bytes, bool Partial, string Description)
 
 public enum IntegrationState { Ready, Missing, Disabled, Incompatible, NotReady, Conflict, Unknown }
 
+public sealed record IntegrationResource(string Name, string ProjectUrl, string? RepositoryUrl, string SearchTerm);
+
 public sealed record PluginIntegration(string Name, bool Required, string Feature,
     IntegrationState State, string Explanation, string SearchTerm)
 {
+    public IReadOnlyList<IntegrationResource> Resources { get; init; } = [];
+
     public bool NeedsAttention => State is not (IntegrationState.Ready or IntegrationState.Unknown);
     public string StatusLabel => State switch
     {
@@ -107,11 +109,11 @@ public sealed record PluginIntegration(string Name, bool Required, string Featur
     };
 }
 
-public sealed record IntegrationReport(IReadOnlyList<PluginIntegration> Plugins, string? Notice = null)
+public sealed record IntegrationReport(IReadOnlyList<PluginIntegration> Plugins, string? Notice = null, bool Pending = false)
 {
     public int RequiredProblems => Plugins.Count(p => p.Required && p.NeedsAttention);
     public int OptionalProblems => Plugins.Count(p => !p.Required && p.NeedsAttention);
-    public bool Incomplete => Notice != null || Plugins.Any(p => p.State == IntegrationState.Unknown);
+    public bool Incomplete => Pending || Notice != null || Plugins.Any(p => p.State == IntegrationState.Unknown);
 }
 
 public sealed record DuplicateCharacter(string Identity, string DisplayName, bool Online,
@@ -185,6 +187,12 @@ internal sealed class DuplicatePolicy
             }
         }
 
+        // Index settled backup pauses once. A character must not scan every other
+        // character's pauses, or allocate a provider prefix for every global key.
+        var previousByCharacter = previousPauses.Where(key => configuration.OwnedPauses.TryGetValue(key, out var owned)
+                && !owned.RestoreRequested && !configuration.ManualPauses.Contains(key)
+                && !configuration.AutomaticExceptions.Contains(key))
+            .ToLookup(key => configuration.OwnedPauses[key].CharacterIdentity, StringComparer.Ordinal);
         var groups = pairs.Where(p => p.CharacterIdentity != null)
             .GroupBy(p => p.CharacterIdentity!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.Ordinal);
@@ -213,7 +221,7 @@ internal sealed class DuplicatePolicy
                 && !configuration.IsManuallyPaused(p)
                 && !configuration.AutomaticExceptions.Contains(p.Key)
                 && (p.Online || p.Visible || (visibleCharacters.Contains(identity) && IsRestorable(p)))
-                && (!p.OwnPaused || IsRestorable(p))).ToList();
+                && (!p.OwnPaused || !p.Adapter.LocalHolds && IsRestorable(p))).ToList();
             if (candidates.Count == 0)
             {
                 // Retain an outage decision until a fallback becomes available, and retain a pin
@@ -255,12 +263,9 @@ internal sealed class DuplicatePolicy
 
         void PreservePauses(string identity, SyncProvider winner)
         {
-            foreach (var key in previousPauses)
-                if (!key.StartsWith($"{winner}|", StringComparison.Ordinal)
-                    && configuration.OwnedPauses.TryGetValue(key, out var owned) && owned.CharacterIdentity == identity
-                    && !owned.RestoreRequested && !configuration.ManualPauses.Contains(key)
-                    && !configuration.AutomaticExceptions.Contains(key))
-                    desired.Add(key);
+            var winnerPrefix = $"{winner}|";
+            foreach (var key in previousByCharacter[identity])
+                if (!key.StartsWith(winnerPrefix, StringComparison.Ordinal)) desired.Add(key);
         }
     }
 

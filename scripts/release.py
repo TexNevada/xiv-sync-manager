@@ -66,6 +66,10 @@ def run(*args):
     subprocess.run(args, check=True)
 
 
+def output(*args):
+    return subprocess.run(args, check=True, capture_output=True, text=True).stdout.strip()
+
+
 def make_plan(channel, version, repository, release, feed):
     tag = release_tag(channel, version)
     expected_url = asset_url(repository, tag)
@@ -144,6 +148,8 @@ def publish():
             raise ValueError('Release was published during this run; refusing to overwrite it')
         # A failed run can leave a draft. Keep the original tag tied to its source commit.
         ref = api(f'git/ref/tags/{tag}')
+        if release is not None and ref is None and release.get('target_commitish') != os.environ['GITHUB_SHA']:
+            raise ValueError('Existing tagless draft does not target this exact source commit; rerun its original workflow or bump the version')
         if ref is not None:
             target = ref['object']
             while target['type'] == 'tag':
@@ -185,6 +191,11 @@ def commit_feed():
     prepared = PREPARED_FEED.read_text(encoding='utf-8')
     run('git', 'config', 'user.name', 'github-actions[bot]')
     run('git', 'config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+    if channel == 'master':
+        propose_master_feed(result, prepared)
+        return
+    if channel != 'dev':
+        raise ValueError(f'Unsupported feed channel: {channel}')
     # Preserve commits pushed while the build ran; retry a racing fast-forward up to three times.
     for _ in range(3):
         run('git', 'fetch', 'origin', channel)
@@ -201,6 +212,51 @@ def commit_feed():
         if subprocess.run(['git', 'push', 'origin', f'HEAD:refs/heads/{channel}']).returncode == 0:
             return
     raise RuntimeError('Could not push the feed after three attempts; rerun the workflow to repair it')
+
+
+def propose_master_feed(result, prepared):
+    # Master is human-reviewed. Only push an ordinary working branch; never merge its PR.
+    branch = f'release/master-feed-{result["version"]}'
+    repository = os.environ['GITHUB_REPOSITORY']
+    run('git', 'fetch', 'origin', 'master')
+    run('git', 'checkout', '-B', branch, 'origin/master')
+    current = json.loads(FEED.read_text(encoding='utf-8')) if FEED.exists() else []
+    if current and version_tuple(current[0]['AssemblyVersion']) > version_tuple(result['version']):
+        raise ValueError('A newer master feed is already published; refusing to downgrade it')
+    if FEED.exists() and FEED.read_text(encoding='utf-8') == prepared:
+        print('Master installer feed already matches the release')
+        return
+    if output('git', 'ls-remote', '--heads', 'origin', f'refs/heads/{branch}'):
+        run('git', 'fetch', 'origin', branch)
+        # Preserve an existing PR branch and human commits rather than force-pushing it.
+        run('git', 'checkout', '-B', branch, f'origin/{branch}')
+    current = json.loads(FEED.read_text(encoding='utf-8')) if FEED.exists() else []
+    if current and version_tuple(current[0]['AssemblyVersion']) > version_tuple(result['version']):
+        raise ValueError('The existing feed PR has a newer version; refusing to downgrade it')
+    if not FEED.exists() or FEED.read_text(encoding='utf-8') != prepared:
+        FEED.write_text(prepared, encoding='utf-8')
+        run('git', 'add', str(FEED))
+        run('git', 'commit', '-m', f'Update master installer feed for {result["version"]}')
+        run('git', 'push', 'origin', f'HEAD:refs/heads/{branch}')
+    # Include the head owner so a similarly named branch in a fork cannot be reused.
+    url = output('gh', 'api', '--method', 'GET', f'repos/{repository}/pulls',
+                 '-f', 'state=open', '-f', 'base=master', '-f', f'head={repository.split("/")[0]}:{branch}',
+                 '--jq', '.[0].html_url // empty')
+    if not url:
+        body = Path('artifacts/master-feed-pr.md')
+        body.parent.mkdir(exist_ok=True)
+        body.write_text(
+            f'Update the Dalamud installer feed to master version {result["version"]}.\n\n'
+            f'Package: {asset_url(repository, result["tag"])}\n\n'
+            'The release workflow verified the package and manifest. '
+            'This PR updates the installer feed only and remains open for human review and merging.\n',
+            encoding='utf-8')
+        url = output('gh', 'pr', 'create', '--repo', repository, '--base', 'master', '--head', branch,
+                     '--title', f'Update master installer feed for {result["version"]}', '--body-file', str(body))
+    print(f'Master installer feed awaits human review: {url}')
+    if summary := os.environ.get('GITHUB_STEP_SUMMARY'):
+        with open(summary, 'a', encoding='utf-8') as stream:
+            stream.write(f'Master installer feed awaits human review: {url}\n')
 
 
 if __name__ == '__main__':

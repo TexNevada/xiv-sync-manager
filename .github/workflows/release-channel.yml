@@ -9,9 +9,13 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   release:
+    if: >-
+      (inputs.channel == 'dev' || inputs.channel == 'master') &&
+      github.ref == format('refs/heads/{0}', inputs.channel)
     runs-on: windows-2022
     env:
       GH_TOKEN: ${{ github.token }}
@@ -43,6 +47,15 @@ jobs:
       - name: Build plugin
         if: steps.plan.outputs.publish == 'true'
         run: dotnet build XivSyncManager.slnx --configuration Release -p:RestoreLockedMode=true
+      - name: Check index retention
+        if: steps.plan.outputs.publish == 'true'
+        run: dotnet run --project tests/IndexRetention.Tests --configuration Release
+      - name: Check configuration saves
+        if: steps.plan.outputs.publish == 'true'
+        run: dotnet run --project tests/ConfigurationSave.Tests --configuration Release
+      - name: Check coordinator and native adapters
+        if: steps.plan.outputs.publish == 'true'
+        run: dotnet run --project tests/Coordinator.Tests --configuration Release
       - name: Publish package and prepare installer feed
         if: steps.plan.outputs.feed == 'true'
         run: python scripts/release.py publish

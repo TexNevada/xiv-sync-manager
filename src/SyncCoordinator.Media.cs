@@ -23,14 +23,18 @@ public sealed partial class SyncCoordinator
         lock (SyncRoot)
         {
             if (stopping || kind is not (MediaKind.Animations or MediaKind.Sounds or MediaKind.Vfx)) return;
+            var queued = 0;
             // Queue a batch so large global changes use the same bounded request budget as pauses.
             foreach (var pair in pairs.DistinctBy(p => p.Key))
             {
                 if (!CanChangeMedia(pair)) continue;
                 if (pair.Media.Disabled.HasFlag(kind) == disabled) continue;
                 queuedMedia[pair.Key] = new(pair.Pair, kind, disabled, pair.Media.Disabled.HasFlag(kind));
+                queued++;
                 mediaErrors.Remove(pair.Key);
             }
+            if (queued > 0)
+                Plugin.Log.Info("[Media] Queued {Action} {Kind} for {PairCount} pairs.", disabled ? "pause" : "resume", kind, queued);
             RefreshSoon();
         }
     }
@@ -97,9 +101,59 @@ public sealed partial class SyncCoordinator
         }
         else if (pair.Media.Permissions != change.Before || DateTime.UtcNow >= change.Deadline)
         {
+            var recovery = new LateMediaChange
+            {
+                CharacterIdentity = owned.CharacterIdentity, After = change.After,
+                OriginalAfter = change.OriginalAfter,
+                PausedAfter = pair.Adapter.PausedPermissionsFrom(pair, change.After),
+                PauseReason = owned.OriginalPauseReason,
+            };
+            if (!configuration.LateMediaChanges.TryGetValue(pair.Key, out var history))
+                configuration.LateMediaChanges[pair.Key] = history = [];
+            // Repeated identical requests need only one recovery entry.
+            if (!history.Any(c => c.After == recovery.After && c.OriginalAfter == recovery.OriginalAfter
+                && c.PauseReason == recovery.PauseReason)) history.Add(recovery);
             owned.MediaChange = null;
             configuration.Save();
         }
+    }
+
+    private void ReconcileLateMediaChanges(PairSnapshot pair)
+    {
+        // Do not reinterpret permissions while a newer request is still in flight.
+        if (operations.TryGetValue(pair.Key, out var operation) && !operation.Task.IsCompleted || mediaOperations.ContainsKey(pair.Key)
+            || configuration.OwnedPauses.GetValueOrDefault(pair.Key)?.MediaChange != null
+            || !configuration.LateMediaChanges.TryGetValue(pair.Key, out var history)) return;
+        var recovery = history.LastOrDefault(c => pair.Permissions == c.After && pair.PauseReason == c.PauseReason);
+        if (recovery == null) return;
+        // A completed restore may be waiting for a confirmation that this late callback
+        // replaced. Its task is finished; recover the new state and permit a fresh restore.
+        if (operation != null)
+        {
+            _ = operation.Task.Exception;
+            operations.Remove(pair.Key);
+        }
+        retryAfter.Remove(pair.Key);
+        errors.Remove(pair.Key);
+        if (configuration.OwnedPauses.TryGetValue(pair.Key, out var owned))
+        {
+            owned.OriginalPermissions = recovery.OriginalAfter;
+            owned.PausedPermissions = recovery.PausedAfter;
+            if (recovery.After != recovery.PausedAfter) owned.RestoreRequested = true;
+        }
+        else if (recovery.After == recovery.PausedAfter)
+        {
+            configuration.OwnedPauses[pair.Key] = new()
+            {
+                CharacterIdentity = recovery.CharacterIdentity,
+                OriginalPermissions = recovery.OriginalAfter, PausedPermissions = recovery.PausedAfter,
+                OriginalPauseReason = recovery.PauseReason, Confirmed = true, RestoreRequested = true,
+            };
+        }
+        history.RemoveAll(c => c.After == recovery.After && c.PauseReason == recovery.PauseReason);
+        if (history.Count == 0) configuration.LateMediaChanges.Remove(pair.Key);
+        configuration.Save();
+        mediaErrors.Remove(pair.Key);
     }
 
     private void FinishMediaOperations()
@@ -126,7 +180,8 @@ public sealed partial class SyncCoordinator
             mediaOperations.Remove(key);
             if (pair != null && configuration.OwnedPauses.TryGetValue(key, out var unchanged))
             {
-                // A failed request can still have a delayed callback. Keep alternatives until its deadline.
+                // A failed request can still have a delayed callback. Retain recovery
+                // information after its deadline without blocking ordinary pause restoration.
                 ReconcileMediaChange(pair, unchanged);
             }
             RecordMediaError(key, cause ?? (failed ? new OperationCanceledException("The media request was canceled.")
@@ -138,7 +193,7 @@ public sealed partial class SyncCoordinator
     {
         var cause = ReflectionAccess.Unwrap(exception);
         mediaErrors[key] = cause.Message;
-        Plugin.Log.Warning(cause, "Could not change pair media permissions.");
+        Plugin.Log.Warning(cause, "[Media] Could not change {Provider} pair permissions.", ParseProvider(key)?.DisplayName() ?? "unknown sync");
     }
 
     private void UpdateAudioHistory()

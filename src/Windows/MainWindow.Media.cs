@@ -80,7 +80,6 @@ public sealed partial class MainWindow
     private void DrawRecentAudio()
     {
         ImGui.TextUnformatted("Recent audio · last 60 seconds");
-        ImGui.TextWrapped("Lightless reports playing sound paths. PlayerSync reports sound loading, which does not confirm playback. Snowcloak does not expose this activity in the supported version.");
         var pairs = plugin.Coordinator.Pairs.Where(p => p.Audio.Recent)
             .OrderByDescending(p => p.Audio.Playing).ThenByDescending(p => p.Audio.LastPlayedAt ?? p.Audio.LastLoadedAt).ToArray();
         if (pairs.Length == 0) ImGui.TextDisabled("No recent audio activity reported.");

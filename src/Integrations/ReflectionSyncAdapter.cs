@@ -34,7 +34,7 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
         return pairs;
     }
 
-    internal IEnumerable<bool> RefreshIncrementally(IEnumerable<IExposedPlugin> plugins, List<PairSnapshot> pairs)
+    internal IEnumerable<string> RefreshIncrementally(IEnumerable<IExposedPlugin> plugins, List<PairSnapshot> pairs)
     {
         var installed = plugins as IReadOnlyList<IExposedPlugin> ?? plugins.ToArray();
         Connected = false;
@@ -65,10 +65,10 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
             if (Connected) scope = GetScope();
         }
         catch (Exception exception) { failure = exception; }
-        yield return true;
+        yield return $"{Provider.DisplayName()}: read connection";
 
         if (loaded != null) integrations = IntegrationDiagnostics.Read(loaded, Provider, installed);
-        yield return true;
+        yield return $"{Provider.DisplayName()}: integration checks";
         if (failure == null && !Connected)
         {
             var canReconnect = TryGetConnectionControl(out var reconnectError);
@@ -85,21 +85,22 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
         if (failure == null)
         {
             profiles?.Refresh();
-            yield return true;
+            yield return $"{Provider.DisplayName()}: refresh profile cache";
             try { nativePairs = ReadPairs().ToArray(); }
             catch (Exception exception) { failure = exception; }
-            yield return true;
+            yield return $"{Provider.DisplayName()}: enumerate native pairs";
         }
         if (failure == null)
         {
             vram = VramDiagnostics.Read(pairManager!, nativePairs, Provider);
-            yield return true;
+            yield return $"{Provider.DisplayName()}: VRAM diagnostics";
+            var pairStep = $"{Provider.DisplayName()}: read pair snapshot";
             foreach (var nativePair in nativePairs)
             {
                 try { pairs.Add(ReadPair(nativePair)); }
                 catch (Exception exception) { failure = exception; }
                 if (failure != null) break;
-                yield return true;
+                yield return pairStep;
             }
             if (failure == null)
             {
@@ -243,7 +244,9 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
             Visible = ReflectionAccess.Boolean(ReflectionAccess.Read(pair, "IsVisible")),
             OwnPaused = ownPaused,
             OtherPaused = otherPaused,
-            ExternalHold = canHold && (applicationReasons.Concat(downloadReasons).Any(r => r != HoldSource)
+            // Snowcloak's IsPaused is an effective native permission pause, including
+            // direct/group restrictions. Releasing our local ledger hold cannot undo it.
+            ExternalHold = canHold && (ownPaused || applicationReasons.Concat(downloadReasons).Any(r => r != HoldSource)
                                        || Reasons(pair, "AutoPauseReasons").Count != 0),
             ManagerHeld = canHold && (applicationReasons.Contains(HoldSource) || downloadReasons.Contains(HoldSource)),
             ManagerFullyHeld = canHold && applicationReasons.Contains(HoldSource) && downloadReasons.Contains(HoldSource),
