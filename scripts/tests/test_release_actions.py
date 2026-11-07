@@ -178,6 +178,27 @@ class ReleaseActionTests(unittest.TestCase):
         output.assert_not_called()
         self.assertFalse(any(command[:2] == ('git', 'push') for command in self.commands))
 
+    def test_existing_feed_branch_without_pr_opens_pr_without_rewriting_branch(self):
+        self.prepare_master_feed()
+        branch = f'release/master-feed-{VERSION}'
+        def run(*args):
+            self.simulate_run(*args)
+            if args == ('git', 'checkout', '-B', branch, f'origin/{branch}'):
+                release.FEED.write_text(release.PREPARED_FEED.read_text(), encoding='utf-8')
+        def output(*args):
+            self.commands.append(args)
+            if args[:2] == ('git', 'ls-remote'):
+                return f'{SOURCE}\trefs/heads/{branch}'
+            if args[:2] == ('gh', 'api'):
+                return ''
+            if args[:3] == ('gh', 'pr', 'create'):
+                return 'https://github.com/example/repo/pull/1'
+            raise AssertionError(args)
+        with patch.object(release, 'run', run), patch.object(release, 'output', output):
+            release.commit_feed()
+        self.assertIn(('gh', 'pr', 'create'), [command[:3] for command in self.commands])
+        self.assertFalse(any(command[:2] in [('git', 'push'), ('git', 'commit')] for command in self.commands))
+
     def test_master_feed_refuses_downgrade(self):
         prepared = self.prepare_master_feed()
         release.FEED.write_text(json.dumps([dict(prepared[0], AssemblyVersion='0.0.1.8')]), encoding='utf-8')

@@ -78,7 +78,13 @@ def make_plan(channel, version, repository, release, feed):
     published = release is not None and not release['draft']
     if published and not any(asset['name'] == 'latest.zip' for asset in release['assets']):
         raise ValueError(f'Published release {tag} has no latest.zip; refusing to replace it')
+    # A matching version and URL alone do not guarantee Dalamud can find or install
+    # the plugin. Repair these fields from the published package if they drift.
     matches = (len(feed) == 1 and feed[0].get('AssemblyVersion') == version
+               and feed[0].get('InternalName') == 'XivSyncManager'
+               and feed[0].get('DalamudApiLevel') == 15
+               and feed[0].get('IsHide') is False
+               and feed[0].get('IsTestingExclusive') is False
                and all(feed[0].get(key) == expected_url
                        for key in ('DownloadLinkInstall', 'DownloadLinkUpdate')))
     return {'channel': channel, 'version': version, 'tag': tag,

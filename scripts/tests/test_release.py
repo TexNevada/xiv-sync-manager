@@ -55,6 +55,19 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(plan['publish'])
         self.assertTrue(plan['feed'])
 
+    def test_uninstallable_feed_is_repaired_without_republishing(self):
+        for channel in ('master', 'dev'):
+            for key, value in (('InternalName', 'WrongPlugin'), ('DalamudApiLevel', 14),
+                               ('IsHide', True), ('IsTestingExclusive', True)):
+                with self.subTest(channel=channel, key=key):
+                    broken = feed(channel)
+                    broken[0][key] = value
+                    plan = release.make_plan(channel, VERSION, REPOSITORY, PUBLISHED, broken)
+                    self.assertFalse(plan['publish'])
+                    self.assertTrue(plan['feed'])
+                    del broken[0][key]
+                    self.assertTrue(release.make_plan(channel, VERSION, REPOSITORY, PUBLISHED, broken)['feed'])
+
     def test_refuses_version_rollback(self):
         with self.assertRaisesRegex(ValueError, 'downgrade'):
             release.make_plan('dev', VERSION, REPOSITORY, None, feed(version='0.0.2.0'))
