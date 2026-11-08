@@ -551,6 +551,7 @@ public sealed partial class MainWindow : Window
     {
         var coordinator = plugin.Coordinator;
         if (character.Pairs.Any(coordinator.IsPending)) return "Updating…";
+        if (character.Pairs.Any(coordinator.IsRetrying)) return "Retrying…";
         if (!character.Online) return paused ? "Pause saved" : "Offline";
         if (paused)
             return character.Pairs.Count > 0 && character.Pairs.All(p => p.OwnPaused || p.ManagerFullyHeld || p.ExternalHold)

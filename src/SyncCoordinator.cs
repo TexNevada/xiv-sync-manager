@@ -15,6 +15,10 @@ public sealed partial class SyncCoordinator
     private readonly ReflectionSyncAdapter[] adapters = Enum.GetValues<SyncProvider>().Select(p => new ReflectionSyncAdapter(p)).ToArray();
     private readonly Dictionary<string, PendingOperation> operations = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTime> retryAfter = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> retryFailures = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, bool> retryDirections = new(StringComparer.Ordinal);
+    private readonly HashSet<string> stalledOperations = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PendingReapply> pendingReapplications = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PairSnapshot> localHolds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> errors = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> profileErrors = new(StringComparer.Ordinal);
@@ -34,6 +38,7 @@ public sealed partial class SyncCoordinator
     private HashSet<string> visibleCharacters = new(StringComparer.Ordinal);
     private bool stopping;
     private const int MaxConcurrentOperations = 8;
+    private const int MaxAutomaticRetries = 3;
     private static readonly TimeSpan RefreshFrameBudget = TimeSpan.FromMilliseconds(2);
     private IReadOnlyList<PairSnapshot> pairs = [];
     private HashSet<string> pairKeys = new(StringComparer.Ordinal);
@@ -218,6 +223,8 @@ public sealed partial class SyncCoordinator
         // Restore/fail over before spending the remaining request budget on a large media batch.
         StartQueuedMedia();
         yield return "Start queued media changes";
+        ProcessReapplications(DateTime.UtcNow);
+        yield return "Reapply settled appearances";
     }
 
     private void LogProviderState(ProviderStatus status)
@@ -381,7 +388,16 @@ public sealed partial class SyncCoordinator
                 || !configuration.OwnedPauses.TryGetValue(pair.Key, out var owned)) continue;
             ReconcileMediaChange(pair, owned);
             if (owned.MediaChange != null) continue;
-            if (owned.LocalHold) continue;
+            if (owned.LocalHold)
+            {
+                if (!owned.RestoreRequested && pair.ManagerFullyHeld && retryFailures.ContainsKey(pair.Key))
+                {
+                    owned.Confirmed = true;
+                    configuration.Save();
+                    ClearRetryState(pair.Key);
+                }
+                continue;
+            }
             if (owned.RestoreRequested && pair.Permissions == owned.OriginalPermissions && pair.PauseReason == owned.OriginalPauseReason)
             {
                 // Send and confirm restoration even if a previous request's pause callback has not arrived yet.
@@ -390,6 +406,7 @@ public sealed partial class SyncCoordinator
             if (pair.Permissions == owned.PausedPermissions && pair.PauseReason == owned.OriginalPauseReason)
             {
                 if (!owned.Confirmed) { owned.Confirmed = true; configuration.Save(); }
+                if (!owned.RestoreRequested) ClearRetryState(pair.Key);
                 continue;
             }
             if (!owned.Confirmed && pair.Permissions == owned.OriginalPermissions && pair.PauseReason == owned.OriginalPauseReason) continue;
@@ -400,18 +417,28 @@ public sealed partial class SyncCoordinator
             configuration.AutomaticExceptions.Add(pair.Key);
             errors[pair.Key] = "Changed in the sync plugin; automatic changes are suspended for this pair.";
             configuration.Save();
+            Plugin.NotifyAttention();
         }
     }
 
-    private bool CanStart(PairSnapshot pair) => !operations.ContainsKey(pair.Key)
-        && !mediaOperations.ContainsKey(pair.Key)
-        && configuration.OwnedPauses.GetValueOrDefault(pair.Key)?.MediaChange == null
-        && (stopping || operations.Count + mediaOperations.Count < MaxConcurrentOperations)
-        && (stopping || !retryAfter.TryGetValue(pair.Key, out var until) || DateTime.UtcNow >= until);
+    private bool CanStart(PairSnapshot pair, bool paused)
+    {
+        if (operations.ContainsKey(pair.Key) || mediaOperations.ContainsKey(pair.Key)
+            || configuration.OwnedPauses.GetValueOrDefault(pair.Key)?.MediaChange != null
+            || !stopping && operations.Count + mediaOperations.Count >= MaxConcurrentOperations) return false;
+        // A failed pause must never prevent an independently requested restoration, or vice versa.
+        if (retryDirections.TryGetValue(pair.Key, out var previous) && previous != paused) ClearRetryState(pair.Key);
+        retryDirections[pair.Key] = paused;
+        return stopping || retryFailures.GetValueOrDefault(pair.Key) <= MaxAutomaticRetries
+            && (!retryAfter.TryGetValue(pair.Key, out var until) || DateTime.UtcNow >= until);
+    }
 
     private void StartPause(PairSnapshot pair)
     {
-        if (!CanStart(pair)) return;
+        // Restoration always wins over a saved pause choice. In particular, do not
+        // reset the restore's retry budget while an interrupted restore is pending.
+        if (configuration.OwnedPauses.GetValueOrDefault(pair.Key)?.RestoreRequested == true) return;
+        if (!CanStart(pair, true)) return;
         var created = false;
         if (configuration.OwnedPauses.TryGetValue(pair.Key, out var owned))
         {
@@ -446,7 +473,7 @@ public sealed partial class SyncCoordinator
 
     private void StartRestore(PairSnapshot pair, OwnedPause owned)
     {
-        if (!CanStart(pair)) return;
+        if (!CanStart(pair, false)) return;
         if (owned.LocalHold != pair.Adapter.LocalHolds)
         {
             RecordError(pair.Key, new NotSupportedException("The pause integration changed since this record was saved. Restore the pause in its original sync plugin; the saved record has been retained."));
@@ -466,7 +493,6 @@ public sealed partial class SyncCoordinator
             if (pair.Adapter.LocalHolds) localHolds[pair.Key] = pair;
             var task = pair.Adapter.SetPaused(pair, paused);
             operations[pair.Key] = new(task, paused, DateTime.UtcNow.AddSeconds(20));
-            errors.Remove(pair.Key);
         }
         catch (Exception exception)
         {
@@ -490,10 +516,16 @@ public sealed partial class SyncCoordinator
         {
             if (!operation.Task.IsCompleted)
             {
-                if (DateTime.UtcNow >= operation.Deadline && !errors.ContainsKey(key))
-                    RecordError(key, new TimeoutException("The sync request is still running. Further changes wait for it to finish."));
+                if (DateTime.UtcNow >= operation.Deadline && stalledOperations.Add(key))
+                {
+                    errors[key] = "The sync request is still running. Further changes wait for it to finish.";
+                    Plugin.Log.Warning("[Management] A {Provider} request is still running; further requests are blocked.",
+                        ParseProvider(key)?.DisplayName() ?? "unknown sync");
+                    if (!stopping) Plugin.NotifyAttention();
+                }
                 continue;
             }
+            stalledOperations.Remove(key);
             if (operation.Task.IsFaulted || operation.Task.IsCanceled)
             {
                 RetainUnconfirmedOperation(key, operation, operation.Task.Exception?.GetBaseException()
@@ -509,6 +541,7 @@ public sealed partial class SyncCoordinator
                 if (confirmed)
                 {
                     operations.Remove(key);
+                    ClearRetryState(key);
                     if (operation.Paused)
                     {
                         owned.Confirmed = true;
@@ -554,28 +587,85 @@ public sealed partial class SyncCoordinator
         var hasPreference = configuration.PreferredProviders.TryGetValue(suppressed.CharacterIdentity, out var preferred);
         var remaining = Pairs.Where(p => p.CharacterIdentity == suppressed.CharacterIdentity && p.Provider != suppressed.Provider
                 && p.Online && p.Visible && !p.OwnPaused && !p.OtherPaused && !p.ManagerHeld && !p.ExternalHold
-                && !configuration.IsManuallyPaused(p))
+                && !configuration.IsManuallyPaused(p) && !configuration.AutomaticExceptions.Contains(p.Key)
+                && !automaticPauses.Contains(p.Key))
             .OrderBy(p => hasPreference && p.Provider == preferred ? -1 : configuration.Priority.IndexOf(p.Provider)).FirstOrDefault();
         if (remaining == null) return;
         TryReapply(remaining);
     }
 
-    private static void TryReapply(PairSnapshot pair)
+    private void TryReapply(PairSnapshot pair)
     {
-        try { pair.Adapter.Reapply(pair); }
+        if (stopping || configuration.AutomaticExceptions.Contains(pair.Key) || automaticPauses.Contains(pair.Key)) return;
+        try
+        {
+            if (pair.Adapter.Reapply(pair) && pair.CharacterIdentity != null)
+                // The suppressed plugin can finish clearing its appearance after the first
+                // application. Reapply once more after the handoff has had time to settle.
+                pendingReapplications[pair.Key] = new(pair.Pair, pair.CharacterIdentity, DateTime.UtcNow.AddSeconds(2));
+        }
         catch (Exception exception) { Plugin.Log.Warning(ReflectionAccess.Unwrap(exception), "[Management] Could not reapply the remaining sync's appearance."); }
+    }
+
+    private void ProcessReapplications(DateTime now)
+    {
+        foreach (var (key, pending) in pendingReapplications.ToArray())
+        {
+            if (now < pending.Due) continue;
+            pendingReapplications.Remove(key);
+            var pair = Pairs.FirstOrDefault(p => p.Key == key);
+            // Never reuse a stale pair, a different character, or a route that is no
+            // longer selected. Do not compete with pending pause or media changes.
+            if (pair == null || !ReferenceEquals(pair.Pair, pending.Pair) || pair.CharacterIdentity != pending.Identity
+                || !pair.Online || !pair.Visible || pair.OwnPaused || pair.OtherPaused || pair.ManagerHeld || pair.ExternalHold
+                || configuration.IsManuallyPaused(pair) || configuration.AutomaticExceptions.Contains(key)
+                || automaticPauses.Contains(key) || connectionOperations.ContainsKey(pair.Provider)
+                || Pairs.Any(p => p.CharacterIdentity == pending.Identity && IsPending(p))) continue;
+            try { pair.Adapter.Reapply(pair); }
+            catch (Exception exception) { Plugin.Log.Warning(ReflectionAccess.Unwrap(exception), "[Management] Could not reapply the settled sync appearance."); }
+        }
     }
 
     private void RecordError(string key, Exception exception)
     {
         var cause = ReflectionAccess.Unwrap(exception);
         errors[key] = cause.Message;
-        retryAfter[key] = DateTime.UtcNow.AddSeconds(30);
-        Plugin.Log.Warning(cause, "[Management] Could not change {Provider} pair state. Retrying after 30 seconds.",
-            ParseProvider(key)?.DisplayName() ?? "unknown sync");
+        if (stopping)
+        {
+            Plugin.Log.Warning(cause, "[Management] Could not change {Provider} pair state during cleanup.",
+                ParseProvider(key)?.DisplayName() ?? "unknown sync");
+            return;
+        }
+        var failures = retryFailures.GetValueOrDefault(key) + 1;
+        retryFailures[key] = failures;
+        if (failures <= MaxAutomaticRetries)
+        {
+            retryAfter[key] = DateTime.UtcNow.AddSeconds(30);
+            Plugin.Log.Warning(cause, "[Management] Could not change {Provider} pair state. Automatic retry {Retry} of {Maximum} in 30 seconds.",
+                ParseProvider(key)?.DisplayName() ?? "unknown sync", failures, MaxAutomaticRetries);
+        }
+        else
+        {
+            retryAfter.Remove(key);
+            Plugin.Log.Warning(cause, "[Management] {Provider} pair state needs attention after {Maximum} automatic retries.",
+                ParseProvider(key)?.DisplayName() ?? "unknown sync", MaxAutomaticRetries);
+            Plugin.NotifyAttention();
+        }
     }
 
-    public string? ErrorFor(PairSnapshot pair) => errors.GetValueOrDefault(pair.Key);
+    private void ClearRetryState(string key)
+    {
+        retryFailures.Remove(key);
+        retryDirections.Remove(key);
+        stalledOperations.Remove(key);
+        retryAfter.Remove(key);
+        errors.Remove(key);
+    }
+
+    public bool IsRetrying(PairSnapshot pair) => retryFailures.TryGetValue(pair.Key, out var failures)
+        && failures <= MaxAutomaticRetries && !configuration.AutomaticExceptions.Contains(pair.Key)
+        && !stalledOperations.Contains(pair.Key);
+    public string? ErrorFor(PairSnapshot pair) => IsRetrying(pair) ? null : errors.GetValueOrDefault(pair.Key);
 
     public string? ProfileErrorFor(PairSnapshot pair) => profileErrors.GetValueOrDefault(pair.Key);
 
@@ -689,6 +779,7 @@ public sealed partial class SyncCoordinator
 
     public void SetKeepFallbackUntilReentry(bool enabled)
     {
+        pendingReapplications.Clear();
         configuration.KeepFallbackUntilReentry = enabled;
         duplicatePolicy.ResetSelections();
         configuration.Save();
@@ -707,6 +798,7 @@ public sealed partial class SyncCoordinator
 
     public void SetAutomaticManagement(bool enabled)
     {
+        pendingReapplications.Clear();
         Plugin.Log.Info("[Management] Automatic management {State}.", enabled ? "enabled" : "disabled");
         configuration.AutomaticManagement = enabled;
         duplicatePolicy.ResetSelections();
@@ -716,6 +808,7 @@ public sealed partial class SyncCoordinator
 
     public void SetManualPause(PairSnapshot pair, bool paused)
     {
+        pendingReapplications.Clear();
         if (pair.CharacterIdentity != null) duplicatePolicy.ForgetSelection(pair.CharacterIdentity);
         if (paused) configuration.ManualPauses.Add(pair.Key);
         else
@@ -724,7 +817,7 @@ public sealed partial class SyncCoordinator
             if (configuration.OwnedPauses.TryGetValue(pair.Key, out var owned)) owned.RestoreRequested = true;
             if (pair.CharacterIdentity != null) configuration.PreferredProviders[pair.CharacterIdentity] = pair.Provider;
         }
-        retryAfter.Remove(pair.Key);
+        ClearRetryState(pair.Key);
         configuration.Save();
         RefreshSoon();
     }
@@ -749,6 +842,7 @@ public sealed partial class SyncCoordinator
 
     public void SetCharacterPaused(DuplicateCharacter character, bool paused)
     {
+        pendingReapplications.Clear();
         Plugin.Log.Info("[Management] Character {Action} requested across {ProviderCount} identified sync plugins.",
             paused ? "pause" : "resume", character.Providers.Count);
         duplicatePolicy.ForgetSelection(character.Identity);
@@ -764,8 +858,7 @@ public sealed partial class SyncCoordinator
             configuration.ManualPauses.Remove(key);
             if (paused) configuration.AutomaticExceptions.Remove(key);
             else if (configuration.OwnedPauses.TryGetValue(key, out var owned)) owned.RestoreRequested = true;
-            retryAfter.Remove(key);
-            errors.Remove(key);
+            ClearRetryState(key);
         }
         configuration.Save();
         RefreshSoon();
@@ -773,6 +866,7 @@ public sealed partial class SyncCoordinator
 
     public void SetPreferred(string identity, SyncProvider? provider)
     {
+        pendingReapplications.Clear();
         duplicatePolicy.ForgetSelection(identity);
         if (provider == null) configuration.PreferredProviders.Remove(identity);
         else configuration.PreferredProviders[identity] = provider.Value;
@@ -783,8 +877,7 @@ public sealed partial class SyncCoordinator
     public void UseAutomaticRules(PairSnapshot pair)
     {
         configuration.AutomaticExceptions.Remove(pair.Key);
-        errors.Remove(pair.Key);
-        retryAfter.Remove(pair.Key);
+        ClearRetryState(pair.Key);
         configuration.Save();
         RefreshSoon();
     }
@@ -805,6 +898,10 @@ public sealed partial class SyncCoordinator
             configuration.CharacterPauses.Clear();
             configuration.AutomaticExceptions.Clear();
             errors.Clear();
+            retryFailures.Clear();
+            retryDirections.Clear();
+            stalledOperations.Clear();
+            pendingReapplications.Clear();
             profileErrors.Clear();
             queuedMedia.Clear();
             mediaErrors.Clear();
@@ -822,6 +919,7 @@ public sealed partial class SyncCoordinator
     {
         var target = index + offset;
         if (target < 0 || target >= configuration.Priority.Count) return;
+        pendingReapplications.Clear();
         (configuration.Priority[index], configuration.Priority[target]) = (configuration.Priority[target], configuration.Priority[index]);
         duplicatePolicy.ResetSelections();
         configuration.Save();
@@ -834,6 +932,7 @@ public sealed partial class SyncCoordinator
         lock (SyncRoot)
         {
             stopping = true;
+            pendingReapplications.Clear();
             refresh?.Dispose();
             refresh = null;
             queuedMedia.Clear();
@@ -892,4 +991,5 @@ public sealed partial class SyncCoordinator
 
     private sealed record PendingOperation(Task Task, bool Paused, DateTime Deadline);
     private sealed record PendingConnection(ReflectionSyncAdapter Adapter, Task Task, bool Connect, DateTime Deadline);
+    private sealed record PendingReapply(object Pair, string Identity, DateTime Due);
 }

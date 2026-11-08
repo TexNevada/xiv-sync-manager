@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
+using Dalamud.Interface.ImGuiNotification;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
@@ -18,6 +19,21 @@ public sealed class Plugin : IAsyncDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+    [PluginService] internal static INotificationManager Notifications { get; private set; } = null!;
+
+    private static DateTime nextAttentionNotification;
+    internal static void NotifyAttention()
+    {
+        // A shared failure can affect many pairs at once; avoid a toast for every pair.
+        if (DateTime.UtcNow < nextAttentionNotification) return;
+        nextAttentionNotification = DateTime.UtcNow.AddSeconds(30);
+        Notifications.AddNotification(new Notification
+        {
+            Title = "XIV Sync Manager",
+            Content = "A sync needs attention. Open /syncmanager to review its status.",
+            Type = NotificationType.Warning,
+        });
+    }
 
     private const string CommandName = "/syncmanager";
     private readonly WindowSystem windows = new("XIV Sync Manager");

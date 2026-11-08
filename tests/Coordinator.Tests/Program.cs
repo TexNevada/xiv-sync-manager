@@ -245,5 +245,6 @@ Assert(cacheManager.Characters.Count == 0 && cacheConfiguration.LateMediaChanges
 
 await RecoveryChecks.Run(Assert);
 await ManagementChecks.Run(Assert);
+await RetryAndAppearanceChecks.Run(Assert);
 SelectionChecks.Run(Assert);
 Console.WriteLine($"Coordinator and native-adapter checks passed: {checks}; cached draw allocations: {drawAllocations}");

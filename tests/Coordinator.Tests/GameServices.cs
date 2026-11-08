@@ -61,6 +61,8 @@ namespace XivSyncManager
         public static TestLog Log { get; } = new();
         public static TestFramework Framework { get; } = new();
         public static List<object> ObjectTable { get; } = [];
+        public static int AttentionNotifications { get; set; }
+        internal static void NotifyAttention() => AttentionNotifications++;
     }
     public sealed class TestPluginInterface
     {

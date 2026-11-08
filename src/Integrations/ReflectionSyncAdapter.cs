@@ -234,11 +234,13 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
         var downloadReasons = Reasons(pair, "HoldDownloadReasons");
         var ownPaused = canHold ? ReflectionAccess.Boolean(ReflectionAccess.Read(pair, "IsPaused")) : IsPaused(own!);
         var otherPaused = !canHold && other != null && IsPaused(other);
+        var ident = ReflectionAccess.Text(ReflectionAccess.Read(pair, "Ident"));
+        if (string.IsNullOrEmpty(ident)) ident = ReflectionAccess.Text(ReflectionAccess.Read(pair, "HashedCID"));
         return new PairSnapshot
         {
             Provider = Provider, Key = scope + Uri.EscapeDataString(uid), Uid = uid,
             Label = ReflectionAccess.Text(ReflectionAccess.Read(user, "AliasOrUID")) is { Length: > 0 } alias ? alias : uid,
-            Ident = ReflectionAccess.Text(ReflectionAccess.Read(pair, "Ident")),
+            Ident = ident,
             PlayerName = ReflectionAccess.Text(ReflectionAccess.Read(pair, "PlayerName") ?? ReflectionAccess.Read(handler, "PlayerName")),
             Address = address, Online = ReflectionAccess.Boolean(ReflectionAccess.Read(pair, "IsOnline")),
             Visible = ReflectionAccess.Boolean(ReflectionAccess.Read(pair, "IsVisible")),
@@ -402,16 +404,24 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
         ReflectionAccess.Invoke(pair.Pair, "UnholdApplication", HoldSource, false);
     }
 
-    internal void Reapply(PairSnapshot pair)
+    internal bool Reapply(PairSnapshot pair)
     {
         EnsureCurrent(pair);
-        var method = pair.Pair.GetType().GetMethods(ReflectionAccess.Members).FirstOrDefault(m =>
-            m.Name == "ApplyLastReceivedData" && m.GetParameters() is { Length: > 0 } parameters
-            && parameters[0].ParameterType == typeof(bool) && parameters.All(p => p.IsOptional));
-        if (method == null) return;
+        // PlayerSync's "Reload last data" uses ReapplyCachedData(true). Older sync
+        // versions may instead expose ApplyLastReceivedData with optional arguments.
+        var methods = pair.Pair.GetType().GetMethods(ReflectionAccess.Members);
+        var method = new[] { "ReapplyCachedData", "ApplyLastReceivedData" }.Select(name =>
+            methods.FirstOrDefault(m => m.Name == name && m.GetParameters() is { Length: > 0 } parameters
+                && parameters[0].ParameterType == typeof(bool) && parameters.All(p => p.IsOptional)))
+            .FirstOrDefault(m => m != null);
+        if (method == null) return false;
         var args = method.GetParameters().Select(p => p.DefaultValue).ToArray();
         args[0] = true;
-        method.Invoke(pair.Pair, args);
+        if (method.Invoke(pair.Pair, args) is Task task)
+            _ = task.ContinueWith(failed => Plugin.Log.Warning(ReflectionAccess.Unwrap(failed.Exception!.GetBaseException()),
+                    "[Management] The sync plugin's cached appearance request failed."),
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+        return true;
     }
 
     private void EnsureCurrent(PairSnapshot pair)

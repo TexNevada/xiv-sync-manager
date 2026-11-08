@@ -44,10 +44,14 @@ namespace CoordinatorTests
         public bool IsOnline { get; set; } = true;
         public bool IsVisible { get; set; } = true;
         public string Ident { get; set; } = "verified";
+        public string HashedCID { get; set; } = "";
         public string PlayerName { get; set; } = "Example";
         public nint Address { get; set; } = 1;
         public string PauseReason { get; set; } = "";
         public string GetPauseReason() => PauseReason;
+        public int ReapplyRequests { get; private set; }
+        public bool? ReapplyForced { get; private set; }
+        public void ReapplyCachedData(bool forced = false) { ReapplyRequests++; ReapplyForced = forced; }
         public long LastAppliedApproximateVRAMBytes => 0;
     }
     public sealed class Server
@@ -131,6 +135,7 @@ namespace CoordinatorTests
             Plugin.PluginInterface.Write = null;
             Plugin.PluginInterface.InstalledPlugins.Clear();
             Plugin.ObjectTable.Clear();
+            Plugin.AttentionNotifications = 0;
         }
     }
 }
@@ -154,8 +159,13 @@ namespace Snowcloak.PlayerData.Pairs
         public List<string> HoldApplicationReasons { get; } = [];
         public List<string> HoldDownloadReasons { get; } = [];
         public List<string> AutoPauseReasons { get; } = [];
+        public bool FailApplicationAfterHold { get; set; }
         public void HoldDownloads(string source, int maximum) { if (!HoldDownloadReasons.Contains(source)) HoldDownloadReasons.Add(source); }
-        public void HoldApplication(string source, int maximum) { if (!HoldApplicationReasons.Contains(source)) HoldApplicationReasons.Add(source); }
+        public void HoldApplication(string source, int maximum)
+        {
+            if (!HoldApplicationReasons.Contains(source)) HoldApplicationReasons.Add(source);
+            if (FailApplicationAfterHold) throw new IOException("Hold applied before failure");
+        }
         public void UnholdDownloads(string source, bool skipApplication) => HoldDownloadReasons.Remove(source);
         public void UnholdApplication(string source, bool skipApplication) => HoldApplicationReasons.Remove(source);
     }

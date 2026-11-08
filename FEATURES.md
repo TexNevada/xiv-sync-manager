@@ -70,8 +70,8 @@
 - Preserves existing external pauses and unrelated pair permissions.
 - Uses local download/application holds for supported Snowcloak versions.
 - Uses server pair-permission pauses for Lightless Sync, PlayerSync, and compatible older Snowcloak versions.
-- Attempts to reapply cached appearance data after pause/restoration when supported.
-- Shows operation progress, errors, and **Needs attention** with a Retry button.
+- Requests cached appearance data after pause/restoration when supported, with one guarded follow-up after the handoff settles.
+- Retries failed pause/restoration requests up to three times, then notifies and shows **Needs attention** with a Retry button; external changes remain suspended for manual review.
 - Saves pause-restoration records and retries unfinished restoration after reconnection or reload.
 - Turning management Off keeps existing pauses in place and stops automatic pause/resume decisions. Resume releases a character's retained manager pauses; turning management On reapplies the saved rules.
 - Attempts to restore manager pauses when the plugin unloads.

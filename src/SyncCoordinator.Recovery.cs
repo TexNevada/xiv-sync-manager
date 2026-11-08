@@ -48,7 +48,6 @@ public sealed partial class SyncCoordinator
         if (history.Count == 0) configuration.LatePauseChanges.Remove(pair.Key);
         // StartRestore also saves before dispatch, so a failed recovery save cannot be bypassed.
         configuration.Save();
-        errors.Remove(pair.Key);
-        retryAfter.Remove(pair.Key);
+        ClearRetryState(pair.Key);
     }
 }

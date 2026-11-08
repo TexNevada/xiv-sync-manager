@@ -133,8 +133,7 @@ public sealed partial class SyncCoordinator
             _ = operation.Task.Exception;
             operations.Remove(pair.Key);
         }
-        retryAfter.Remove(pair.Key);
-        errors.Remove(pair.Key);
+        ClearRetryState(pair.Key);
         if (configuration.OwnedPauses.TryGetValue(pair.Key, out var owned))
         {
             owned.OriginalPermissions = recovery.OriginalAfter;
