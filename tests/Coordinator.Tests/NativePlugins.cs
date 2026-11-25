@@ -41,7 +41,7 @@ namespace CoordinatorTests
     public class NativePair(string uid)
     {
         public User UserData { get; } = new(uid);
-        public UserPair UserPair { get; } = new();
+        public UserPair UserPair { get; set; } = new();
         public bool IsOnline { get; set; } = true;
         public bool IsVisible { get; set; } = true;
         public string Ident { get; set; } = "verified";
@@ -188,7 +188,7 @@ namespace Snowcloak.PlayerData.Pairs
 {
     public sealed class Pair(string uid) : CoordinatorTests.NativePair(uid)
     {
-        public bool IsPaused => UserPair.OwnPermissions.IsPaused() || UserPair.OtherPermissions.IsPaused();
+        public bool IsPaused => UserPair != null && (UserPair.OwnPermissions.IsPaused() || UserPair.OtherPermissions.IsPaused());
         public List<string> HoldApplicationReasons { get; } = [];
         public List<string> HoldDownloadReasons { get; } = [];
         public List<string> AutoPauseReasons { get; } = [];

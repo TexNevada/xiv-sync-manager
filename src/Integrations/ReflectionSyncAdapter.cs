@@ -216,7 +216,9 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
         var userPair = ReflectionAccess.Read(pair, "UserPair");
         var own = ReflectionAccess.Read(userPair, "OwnPermissions");
         var other = ReflectionAccess.Read(userPair, "OtherPermissions");
-        var permissions = Fingerprint(own
+        // Snowcloak syncshell-only members have no direct UserPair. Local holds
+        // remain valid without it; only native permission controls require a mask.
+        var permissions = canHold && own == null ? string.Empty : Fingerprint(own
             ?? throw new NotSupportedException("This pair does not expose editable permissions."));
         if (!canHold && !validatedPausePermissions.Contains(own!.GetType()))
         {

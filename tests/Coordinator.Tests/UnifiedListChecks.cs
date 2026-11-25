@@ -52,5 +52,29 @@ internal static class UnifiedListChecks
         check(!manager.CanChangeMedia(p), "Media requests cannot race with native cycle writes");
         cycle.Invoke(manager, [s]);
         check(snow.Api.CycleRequests == 0, "Offline accounts never dispatch cycle requests");
+
+        Environment.Reset();
+        var shellOnly = new Snowcloak.PlayerData.Pairs.Pair("shell-only") { UserPair = null! };
+        var direct = new Snowcloak.PlayerData.Pairs.Pair("direct");
+        var nativePairs = new List<NativePair> { direct, shellOnly };
+        var nativeApi = new Snowcloak.WebAPI.ApiController(nativePairs);
+        var nativeManager = new Snowcloak.PlayerData.Pairs.PairManager(nativePairs);
+        Plugin.PluginInterface.InstalledPlugins.Add(new ExposedPlugin("Snowcloak",
+            new NativePlugin(new Services(nativeManager, nativeApi))));
+        var adapter = new ReflectionSyncAdapter(SyncProvider.Snowcloak);
+        var snapshots = adapter.Refresh(Plugin.PluginInterface.InstalledPlugins);
+        check(adapter.Status.Connected && snapshots.Count == 2,
+            "A Snowcloak syncshell-only member without direct permissions must not disable the provider or erase its users");
+        var shellSnapshot = snapshots.Single(pair => pair.Uid == "shell-only");
+        check(!shellSnapshot.Media.CanEdit && shellSnapshot.Permissions == string.Empty,
+            "A syncshell-only member has no invented direct media permissions");
+        var ownership = adapter.PreparePause(shellSnapshot);
+        adapter.SetPaused(shellSnapshot, true).GetAwaiter().GetResult();
+        var held = adapter.Refresh(Plugin.PluginInterface.InstalledPlugins).Single(pair => pair.Uid == "shell-only");
+        check(ownership.LocalHold && held.ManagerFullyHeld && nativeApi.Requests == 0,
+            "Snowcloak syncshell-only members can still be paused through owned local holds");
+        adapter.SetPaused(held, false).GetAwaiter().GetResult();
+        check(shellOnly.HoldApplicationReasons.Count == 0 && shellOnly.HoldDownloadReasons.Count == 0,
+            "Snowcloak syncshell-only local holds can be safely released");
     }
 }
