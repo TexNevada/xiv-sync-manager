@@ -10,7 +10,7 @@ internal enum SyncshellControl { Pause, Sound, Vfx, Animations, Profile }
 internal enum SyncshellAvailability { Available, Unsupported, Unavailable }
 internal readonly record struct SyncshellKey(SyncProvider Provider, string Gid);
 internal readonly record struct SyncshellSetting(bool? Value, SyncshellAvailability Availability, string Reason = "");
-internal sealed record SyncshellRow(SyncshellKey Key, string Name, SyncshellConnection Connection, SyncshellSetting[] Settings)
+internal sealed record SyncshellRow(SyncshellKey Key, string Name, SyncshellConnection Connection, SyncshellSetting[] Settings, string[]? Members)
 {
     internal SyncshellSetting this[SyncshellControl control] => Settings[(int)control];
 }
@@ -47,11 +47,11 @@ internal sealed class Syncshells(Func<IEnumerable<IExposedPlugin>> installedPlug
     internal bool IsProfilePending(SyncProvider provider) => operations.Any(entry => entry.Key.Provider == provider
         && entry.Value.Control == SyncshellControl.Profile);
 
-    internal void Refresh(TimeSpan now)
+    internal void Refresh(TimeSpan now, Func<SyncshellKey, bool>? expanded = null)
     {
         var installed = installedPlugins().ToArray();
         foreach (var provider in ProviderOrder)
-            providers[provider] = SyncshellIntegration.Read(provider, installed);
+            providers[provider] = SyncshellIntegration.Read(provider, installed, IsVisible(provider) ? expanded : null);
         rows = providers.Values.SelectMany(p => p.Rows)
             .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ThenBy(row => row.Key.Provider)
             .ThenBy(row => row.Key.Gid, StringComparer.Ordinal).ToArray();

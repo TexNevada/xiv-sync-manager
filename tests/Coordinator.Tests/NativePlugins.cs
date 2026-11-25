@@ -167,6 +167,7 @@ namespace PlayerSync.PlayerData.Pairs
     {
         public object[] GetPairsSnapshot() => pairs.Cast<object>().ToArray();
         public Dictionary<string, ShellGroupInfo> Groups { get; } = new(StringComparer.Ordinal);
+        public Dictionary<ShellGroupInfo, List<NativePair>> GroupPairs { get; } = [];
     }
 }
 namespace PlayerSync.WebAPI
@@ -195,6 +196,7 @@ namespace Snowcloak.PlayerData.Pairs
     {
         public object[] GetPairsSnapshot() => pairs.Cast<object>().ToArray();
         public Dictionary<string, ShellGroupInfo> Groups { get; } = new(StringComparer.Ordinal);
+        public Dictionary<ShellGroupInfo, List<NativePair>> GroupPairs { get; } = [];
     }
 }
 namespace Snowcloak.WebAPI

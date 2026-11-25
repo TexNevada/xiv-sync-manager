@@ -58,6 +58,26 @@ namespace CoordinatorTests
             Refresh();
             check(tab.VisibleRows.Count() == 4 && tab.VisibleRows.Select(r => r.Key).Distinct().Count() == 4,
                 "Same-named empty shells are listed separately even when IDs overlap across providers");
+            var offline = new NativePair("offline") { IsOnline = false, IsVisible = false, PlayerName = "" };
+            lights.GroupPairs.Add(new(l.Group), [offline]);
+            snows.GroupPairs.Add(new(s.Group), [new("snow-only")]);
+            players.GroupPairs.Add(new(p.Group), [new("player-only")]);
+            snows.GroupPairs.Add(new(new("second")), []);
+            void RefreshRosters(Func<SyncshellKey, bool> expanded) => tab.Refresh(now, expanded);
+            string[]? Roster(SyncProvider provider, string id = "gid") => Row(provider, id).Members;
+            RefreshRosters(_ => true);
+            check(Roster(SyncProvider.Lightless) is ["offline"], "The native roster includes offline members and falls back to the UID");
+            check(Roster(SyncProvider.Snowcloak) is ["snow-only"] && Roster(SyncProvider.PlayerSync) is ["player-only"],
+                "Same-named shells with the same GID across providers have separate rosters");
+            check(Roster(SyncProvider.Snowcloak, "second") is [], "An empty roster is distinct from an unavailable roster");
+            snows.GroupPairs.Clear();
+            RefreshRosters(_ => true);
+            check(Roster(SyncProvider.Snowcloak) == null && Row(SyncProvider.Snowcloak)[SyncshellControl.Pause].Availability == SyncshellAvailability.Available,
+                "Missing roster data does not hide shells or disable native shell actions");
+            lights.GroupPairs.Values.Single().Clear();
+            RefreshRosters(key => key.Provider == SyncProvider.Lightless);
+            check(Roster(SyncProvider.Lightless) is [] && Roster(SyncProvider.PlayerSync) == null,
+                "Expanded rows reflect membership removals and collapsed rows do not project members");
             var nativeReads = lights.Reads;
             tab.Toggle(SyncProvider.Snowcloak);
             check(tab.VisibleRows.Count() == 2 && lights.Reads == nativeReads && snow.ShellRequests.Count == 0, "Filters only affect presentation");
@@ -231,6 +251,7 @@ namespace LightlessSync.PlayerData.Pairs
     public sealed class PairManager
     {
         public Dictionary<string, ShellGroupInfo> GroupsByGid { get; } = new(StringComparer.Ordinal);
+        public Dictionary<ShellGroupInfo, List<NativePair>> GroupPairs { get; } = [];
         public int Reads { get; private set; }
         public PairManager GetCollectionView() { Reads++; return this; }
         public bool TryGetGroupByGid(string gid, out ShellGroupInfo? group) => GroupsByGid.TryGetValue(gid, out group);

@@ -12,6 +12,8 @@ All permissions shown are the current user's native shell settings, not admin de
 
 ## In-game acceptance checklist
 
+- Check compact rows at the default window size and with a long shell name. The left arrow expands the provider's native `GroupPairs` roster by GID (Lightless exposes it on its collection view). Compare against the native list with all members offline. Check empty and unavailable rosters, including shells with the same display name. Member lists are read only for expanded, visible shells; aliases fall back to native UIDs.
+- Check that Pause shows `=`, Resume shows a right-pointing triangle, and each media control stays on the same line while pending. Confirm the app's amber/yellow treatment for Off and green for On, including in the PaperAndInk theme.
 - With all three loaded, compare joined shells against the native menus, including an empty shell and same-named shells. Toggle each provider and confirm only its rows hide. Turn off automatic duplicate management and repeat.
 - In Lightless and Snowcloak, pause and resume with zero nearby members, then with all members offline if possible. Confirm both directions in the native menus without waiting for a member to appear. Confirm that an existing manager-owned pair pause remains set.
 - For each provider, change one media setting at a time. Check the corresponding native setting, the other two flags, and any unrelated individual pair permissions. Change it back in the native menu and verify the manager refreshes.

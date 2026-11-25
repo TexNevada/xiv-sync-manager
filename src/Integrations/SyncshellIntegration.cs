@@ -16,14 +16,17 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
     private static readonly ConditionalWeakTable<Type, PermissionAccess[]> PermissionMembers = new();
     private readonly object controller = api;
 
-    internal static SyncshellProviderView Read(SyncProvider provider, IReadOnlyList<IExposedPlugin> installed)
+    internal static SyncshellProviderView Read(SyncProvider provider, IReadOnlyList<IExposedPlugin> installed, Func<SyncshellKey, bool>? expanded)
     {
         try
         {
             var native = Find(provider, installed);
             if (native == null) return new(false, "Plugin not loaded.", []);
             var connection = native.Connection();
-            var groups = native.Groups();
+            var view = native.CollectionView();
+            var groups = native.Groups(view);
+            var expandedGroups = groups.Keys.Where(gid => expanded?.Invoke(new(provider, gid)) == true).ToHashSet(StringComparer.Ordinal);
+            var rosters = expandedGroups.Count == 0 ? null : ReadRosters(view, expandedGroups);
             var result = new List<SyncshellRow>(groups.Count);
             var profile = groups.Count == 0 ? default : native.ProfileAccess(connection);
             foreach (var (gid, dto) in groups)
@@ -42,7 +45,7 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
                     settings[(int)control] = control == SyncshellControl.Profile
                         ? profileSetting : native.PermissionSetting(control, permissions, flags, supportedRequest, connection);
                 }
-                result.Add(new(new(provider, gid), Name(dto, gid), connection, settings));
+                result.Add(new(new(provider, gid), Name(dto, gid), connection, settings, rosters?.GetValueOrDefault(gid)));
             }
             if (!connection.SameSnapshot(native.Connection()))
                 return new(false, "Sync connection is changing; waiting for its joined-shell list.", []);
@@ -166,11 +169,40 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
         return new(plugin, session, connectionId, connected ? ReflectionAccess.Text(ReflectionAccess.Read(controller, "UID")) : string.Empty, connected, ready);
     }
 
-    private Dictionary<string, object> Groups()
+    private object? CollectionView() => provider == SyncProvider.Lightless
+        ? ReflectionAccess.Method(manager, "GetCollectionView", 0)?.Invoke(manager, null) : manager;
+
+    private static Dictionary<string, string[]>? ReadRosters(object? view, HashSet<string> expandedGroups)
     {
-        var collection = provider == SyncProvider.Lightless
-            ? ReflectionAccess.Read(ReflectionAccess.Method(manager, "GetCollectionView", 0)?.Invoke(manager, null), "GroupsByGid")
-            : ReflectionAccess.Read(manager, "Groups");
+        try
+        {
+            if (ReflectionAccess.Read(view, "GroupPairs") is not System.Collections.IEnumerable groups) return null;
+            var result = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            foreach (var entry in groups)
+            {
+                if (ReflectionAccess.Read(entry, "Key") is not { } group || GroupId(group) is not { } gid
+                    || !expandedGroups.Contains(gid) || ReflectionAccess.Read(entry, "Value") is not { } pairs) continue;
+                try
+                {
+                    result[gid] = ReflectionAccess.Values(pairs).Select(pair =>
+                    {
+                        var user = ReflectionAccess.Read(pair, "UserData");
+                        var uid = ReflectionAccess.Read(user, "UID") as string;
+                        if (string.IsNullOrWhiteSpace(uid)) throw new NotSupportedException("The native member UID is not exposed.");
+                        var alias = ReflectionAccess.Read(user, "AliasOrUID") as string;
+                        return string.IsNullOrWhiteSpace(alias) ? uid : alias;
+                    }).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
+                }
+                catch (Exception) { /* A changed member contract must not hide the joined shell or affect its actions. */ }
+            }
+            return result;
+        }
+        catch (Exception) { return null; }
+    }
+
+    private Dictionary<string, object> Groups(object? view)
+    {
+        var collection = ReflectionAccess.Read(view, provider == SyncProvider.Lightless ? "GroupsByGid" : "Groups");
         var values = ReflectionAccess.Read(collection, "Values")
             ?? throw new NotSupportedException("The native joined-shell collection is not exposed by this version.");
         var result = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -191,7 +223,7 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
 
     private object? FindGroup(string gid)
     {
-        if (provider != SyncProvider.Lightless) return Groups().GetValueOrDefault(gid);
+        if (provider != SyncProvider.Lightless) return Groups(manager).GetValueOrDefault(gid);
         var lookup = LightlessGroupLookup() ?? throw new NotSupportedException("This Lightless version does not expose native shell lookup by ID.");
         object?[] args = [gid, null];
         return lookup.Invoke(manager, args) is true && ReflectionAccess.Read(ReflectionAccess.Read(args[1], "Group"), "GID") as string == gid
