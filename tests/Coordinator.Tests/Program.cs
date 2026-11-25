@@ -19,6 +19,9 @@ void SetPairs(SyncCoordinator coordinator, params PairSnapshot[] pairs) =>
     typeof(SyncCoordinator).GetProperty(nameof(SyncCoordinator.Pairs))!.SetValue(coordinator, pairs);
 
 // Exercise real reflection discovery and native API dispatch, including repeated storage errors.
+CycleChecks.Run(Assert);
+ShellOwnershipChecks.Run(Assert);
+UnifiedListChecks.Run(Assert);
 SyncshellChecks.Run(Assert);
 TestEnvironment.Reset();
 var native = new TestEnvironment(SyncProvider.PlayerSync);

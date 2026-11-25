@@ -2,11 +2,11 @@
 
 - Supports Lightless Sync, Snowcloak, and PlayerSync.
 - Detects duplicate syncs using verified character name and home-world identity.
-- Shows duplicate characters only; no full pair list.
+- Shows all current paired accounts from connected providers; combines routes only when character identity is verified. Unidentified users keep their native alias/UID and account-scoped controls.
 - Remembers indexed duplicates when they go offline or a sync disconnects.
-- **Nearby:** shows indexed duplicates currently in view.
-- **Online:** shows other indexed duplicates reported online by their syncs.
-- **Offline:** shows remaining indexed duplicates and starts closed.
+- **Nearby:** shows paired users currently in view.
+- **Online:** shows other paired users reported online by their syncs.
+- **Offline:** shows offline provider accounts and remembered indexed duplicates; starts closed.
 - Saves each section's open/closed state across logouts and plugin reloads.
 - Searches characters by name or world.
 - Adds experimental **Profiles** buttons for known syncs in each duplicate row: **L** Lightless, **S** Snowcloak, **P** PlayerSync.
@@ -39,7 +39,10 @@
 - Provides Find buttons that search Dalamud's plugin installer and updates plugin checks automatically.
 - Adds **Sync List**, **Syncshells**, and **Statistics** tabs below the theme selector.
 - **Syncshells:** one joined-shell list with provider filters and native pause, media, and profile controls where supported. See [provider support and limitations](SYNCSHELLS.md).
-- Keeps search and Nearby / Online / Offline duplicate lists in **Sync List**.
+- Keeps search and Nearby / Online / Offline user lists in **Sync List**; search includes aliases and native UIDs.
+- Expands character rows into provider routes, with per-route pause, media, profile, reload-last-data and cycle-pause controls. Expanded syncshell rosters provide the same controls, keyed by native provider/UID/object identity.
+- Confirms shell-wide pause before sending it. PlayerSync includes its native non-sticky-member reason changes while retaining durable alternatives for manager-owned restoration records.
+- Coordinates cycle pause through confirmed native permission requests rather than untrackable fire-and-forget cycle helpers. Saves restoration before pausing, waits for confirmation, then resumes; reload restores an interrupted cycle instead of replaying it.
 - Shows visible paired players' estimated VRAM for Lightless Sync, Snowcloak, and PlayerSync in **Statistics**, including all visible pairs.
 - Uses Lightless's optimized estimates where available, Snowcloak's applied or reported estimates, and PlayerSync's applied estimates.
 - Shows **Total (sum)** in MiB or GiB and marks unavailable or incomplete reports clearly.
@@ -72,7 +75,7 @@
 - Uses local download/application holds for supported Snowcloak versions.
 - Uses server pair-permission pauses for Lightless Sync, PlayerSync, and compatible older Snowcloak versions.
 - Requests cached appearance data after pause/restoration when supported, with one guarded follow-up after the handoff settles.
-- Retries failed pause/restoration requests up to three times, then notifies and shows **Needs attention** with a Retry button; external changes remain suspended for manual review.
+- Retries failed pause/restoration requests at 30-second intervals for three retries, then every five minutes. Running requests are never duplicated. Deliberate native changes remain preserved and can be explicitly returned to management with Retry; failures no longer stop at a **Needs attention** state.
 - Saves pause-restoration records and retries unfinished restoration after reconnection or reload.
 - Turning management Off keeps existing pauses in place and stops automatic pause/resume decisions. Resume releases a character's retained manager pauses; turning management On reapplies the saved rules.
 - Attempts to restore manager pauses when the plugin unloads.

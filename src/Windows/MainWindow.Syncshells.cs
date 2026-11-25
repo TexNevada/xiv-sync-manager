@@ -12,7 +12,9 @@ namespace XivSyncManager.Windows;
 
 public sealed partial class MainWindow
 {
-    private readonly Syncshells syncshells = new(() => Plugin.PluginInterface.InstalledPlugins);
+    private readonly Syncshells syncshells;
+    private SyncshellRow? shellPauseConfirmation;
+    private bool openShellPauseConfirmation;
     private readonly HashSet<SyncshellKey> expandedShells = [];
     private readonly Stopwatch shellClock = Stopwatch.StartNew();
     private TimeSpan nextShellRefresh;
@@ -75,12 +77,13 @@ public sealed partial class MainWindow
             + Syncshells.ProviderOrder.Max(provider => ImGui.CalcTextSize(ShellServiceName(provider)).X);
         var mediaWidth = ShellMediaWidth("Sound") + ShellMediaWidth("VFX") + ShellMediaWidth("Animations")
             + 2 * style.ItemSpacing.X;
+        var recoveryWidth = 3 * ImGui.GetFrameHeight() + 2 * style.ItemSpacing.X;
         var minimumWidth = serviceWidth + ImGui.CalcTextSize("Syncshells").X
-            + pauseWidth + mediaWidth + profileWidth + 10 * style.CellPadding.X;
+            + pauseWidth + mediaWidth + profileWidth + recoveryWidth + 12 * style.CellPadding.X;
         var horizontalScroll = minimumWidth > ImGui.GetContentRegionAvail().X - style.ScrollbarSize;
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY;
         if (horizontalScroll) flags |= ImGuiTableFlags.ScrollX;
-        if (!ImGui.BeginTable("JoinedSyncshells", 5, flags, new Vector2(0, -1), horizontalScroll ? minimumWidth : 0)) return;
+        if (!ImGui.BeginTable("JoinedSyncshells", 6, flags, new Vector2(0, -1), horizontalScroll ? minimumWidth : 0)) return;
         try
         {
             ImGui.TableSetupScrollFreeze(0, 1);
@@ -89,6 +92,7 @@ public sealed partial class MainWindow
             ImGui.TableSetupColumn("Pause state", ImGuiTableColumnFlags.WidthFixed, pauseWidth);
             ImGui.TableSetupColumn("Media permissions", ImGuiTableColumnFlags.WidthFixed, mediaWidth);
             ImGui.TableSetupColumn("Profile", ImGuiTableColumnFlags.WidthFixed, profileWidth);
+            ImGui.TableSetupColumn("Recovery", ImGuiTableColumnFlags.WidthFixed, recoveryWidth);
             ImGui.TableHeadersRow();
             foreach (var row in rows) DrawShellRow(row, now, profileWidth);
         }
@@ -151,23 +155,45 @@ public sealed partial class MainWindow
         }
     }
 
-    private static void DrawShellMembers(SyncshellRow row)
+    private void DrawShellMembers(SyncshellRow row)
     {
-        if (row.Members is not { Length: > 0 } members)
-        {
-            DrawMember(row.Members == null ? "Member list unavailable" : "No members reported", true);
-            return;
-        }
-        foreach (var member in members) DrawMember(member, false);
-
-        static void DrawMember(string member, bool notice)
+        if (row.NativeMembers is not { Length: > 0 } members)
         {
             ImGui.TableNextRow();
             ImGui.TableSetColumnIndex(1);
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + ImGui.GetStyle().ItemSpacing.X);
-            if (notice) ImGui.TextDisabled(member);
-            else ImGui.TextUnformatted(ShellSingleLine(member));
-            Tooltip(member);
+            ImGui.TextDisabled(row.NativeMembers == null ? "Member list unavailable" : "No members reported");
+            return;
+        }
+        // Native object identity + provider + UID, never a display alias.
+        var current = plugin.Coordinator.Pairs.Where(p => p.Provider == row.Key.Provider)
+            .ToDictionary(p => p.Uid, StringComparer.Ordinal);
+        foreach (var member in members)
+        {
+            using var id = ImRaii.PushId(member.Uid);
+            var pair = current.GetValueOrDefault(member.Uid);
+            if (pair != null && !ReferenceEquals(pair.Pair, member.Pair)) pair = null;
+            ImGui.TableNextRow();
+            ImGui.TableSetColumnIndex(0);
+            if (pair != null) ImGui.TextDisabled(PairState(pair));
+            ImGui.TableSetColumnIndex(1);
+            ImGui.TextUnformatted(ShellSingleLine(pair?.CharacterName ?? member.Label));
+            Tooltip($"{member.Label}\nNative UID: {member.Uid}");
+            if (pair == null)
+            {
+                ImGui.TableSetColumnIndex(2);
+                ImGui.TextDisabled("Unavailable");
+                Tooltip("Waiting for a current pair from this provider. No action will target a stale roster member.");
+                continue;
+            }
+            using var disabled = ImRaii.Disabled(syncshells.Pending(row.Key) != null);
+            ImGui.TableSetColumnIndex(2);
+            DrawPairPause(pair);
+            ImGui.TableSetColumnIndex(3);
+            DrawPairMedia(pair);
+            ImGui.TableSetColumnIndex(4);
+            DrawPairProfile(pair);
+            ImGui.TableSetColumnIndex(5);
+            DrawPairRecovery(pair);
         }
     }
 
@@ -199,7 +225,15 @@ public sealed partial class MainWindow
                 ? ImGuiComponents.IconButton("action", setting.Value == true ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause,
                     new Vector2(ImGui.GetFrameHeight(), ImGui.GetFrameHeight()))
                 : ImGui.Button($"{label}###action", size);
-            if (clicked) syncshells.Act(row, control, now);
+            if (clicked)
+            {
+                if (pause && setting.Value == false)
+                {
+                    shellPauseConfirmation = row;
+                    openShellPauseConfirmation = true;
+                }
+                else syncshells.Act(row, control, now);
+            }
         }
         var tip = busy ? syncshells.PendingAfterFailure(row.Key) ? "Request still running after failure; wait before trying again."
                 : "Waiting for the provider to confirm this action."
@@ -210,6 +244,37 @@ public sealed partial class MainWindow
             : media ? $"{(setting.Value == true ? "Disable" : "Enable")} your {Syncshells.Label(control)} preference for this shell in {row.Key.Provider.DisplayName()}."
             : $"{(setting.Value == true ? "Resume" : "Pause")} this shell in {row.Key.Provider.DisplayName()}.";
         Tooltip(pause ? $"{(setting.Value switch { true => "Paused", false => "Not paused", null => "Pause state unknown" })}\n{tip}" : tip);
+    }
+
+    private void DrawShellPauseConfirmation()
+    {
+        const string popup = "Pause this syncshell?##shellPauseConfirmation";
+        if (openShellPauseConfirmation) { ImGui.OpenPopup(popup); openShellPauseConfirmation = false; }
+        var open = true;
+        if (!ImGui.BeginPopupModal(popup, ref open, ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            if (!open) shellPauseConfirmation = null;
+            return;
+        }
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + 420);
+        if (shellPauseConfirmation is { } row)
+        {
+            ImGui.TextUnformatted(ShellSingleLine(row.Name));
+            ImGui.TextDisabled($"{ShellServiceName(row.Key.Provider)} · {row.Key.Gid}");
+            ImGui.TextWrapped("Pause your sync with members of this shell, including members who are offline or not nearby? This changes your native shell setting, not other members' settings. Provider rules and individual overrides still apply.");
+            if (row.Key.Provider == SyncProvider.PlayerSync)
+                ImGui.TextWrapped("PlayerSync also replaces saved pause reasons for non-sticky members with its shell-pause reason. The manager preserves its own restoration tracking. Resuming the shell does not erase individual pauses.");
+            if (ImGui.Button("Pause shell"))
+            {
+                syncshells.Act(row, SyncshellControl.Pause, shellClock.Elapsed);
+                shellPauseConfirmation = null;
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.SameLine();
+        }
+        if (ImGui.Button("Cancel")) { shellPauseConfirmation = null; ImGui.CloseCurrentPopup(); }
+        ImGui.PopTextWrapPos();
+        ImGui.EndPopup();
     }
 
     private static string ShellServiceName(SyncProvider provider) => provider == SyncProvider.Lightless ? "Lightless" : provider.DisplayName();

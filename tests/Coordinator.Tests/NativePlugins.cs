@@ -12,6 +12,7 @@ namespace CoordinatorTests
     public static class PermissionExtensions
     {
         public static bool IsPaused(this Permissions value) => value.HasFlag(Permissions.Paused);
+        public static bool IsSticky(this Permissions value) => value.HasFlag(Permissions.Sticky);
         public static bool IsDisableSounds(this Permissions value) => value.HasFlag(Permissions.Sounds);
         public static bool IsDisableAnimations(this Permissions value) => value.HasFlag(Permissions.Animations);
         public static bool IsDisableVFX(this Permissions value) => value.HasFlag(Permissions.Vfx);
@@ -61,12 +62,19 @@ namespace CoordinatorTests
     }
     public sealed class ServerManager
     {
+        public List<NativePair> Pairs { get; init; } = [];
+        public enum PauseReason { None, PauseSyncshell }
+        public static string FromPauseReason(PauseReason reason) => reason == PauseReason.PauseSyncshell ? "In a paused syncshell" : "";
+        internal void SetPauseReasonForUid(List<string> uids, PauseReason reason, bool save = true)
+        {
+            foreach (var pair in Pairs.Where(p => uids.Contains(p.UserData.UID))) pair.PauseReason = FromPauseReason(reason);
+        }
         public Server CurrentServer { get; } = new();
         public void Save() { }
     }
     public class NativeApi(List<NativePair> pairs)
     {
-        public ServerManager _serverManager = new();
+        public ServerManager _serverManager = new() { Pairs = pairs };
         public object _connectionContext = new();
         public object _connectionDto = new();
         public object ConnectionSession { get; set; } = new();
@@ -80,6 +88,8 @@ namespace CoordinatorTests
         public bool IsConnected { get; set; } = true;
         public bool UserRequestedFullPause { get; set; }
         public int Requests { get; private set; }
+        public int CycleRequests { get; private set; }
+        public Task CyclePauseAsync(User user) { CycleRequests++; return Task.CompletedTask; }
         public List<ShellRequest> ShellRequests { get; } = [];
         public Func<ShellRequest, Task>? OnShellRequest { get; set; }
         public Task GroupChangeIndividualPermissionState(ShellRequest request)

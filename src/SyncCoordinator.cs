@@ -72,17 +72,20 @@ public sealed partial class SyncCoordinator
     {
         // Keep captured LINQ variables in the rebuild method so the cached getter does
         // not allocate a closure on every draw, even when it returns early.
-        var byCharacter = Pairs.Where(p => p.CharacterIdentity != null)
-            .ToLookup(p => p.CharacterIdentity!, StringComparer.Ordinal);
-        characters = configuration.DuplicateCharacters.Select(entry =>
+        var byCharacter = Pairs.ToLookup(p => p.CharacterIdentity ?? AccountIdentity(p), StringComparer.Ordinal);
+        characters = configuration.DuplicateCharacters.Keys.Concat(byCharacter.Select(g => g.Key))
+            .Distinct(StringComparer.Ordinal).Select(identity =>
         {
-            var identified = byCharacter[entry.Key].ToArray();
-            return new DuplicateCharacter(entry.Key, entry.Value.DisplayName,
-                visibleCharacters.Contains(entry.Key) || identified.Any(p => p.Online || p.Visible),
-                entry.Value.Routes.Values.Concat(identified.Select(p => p.Provider)).Distinct()
+            var identified = byCharacter[identity].ToArray();
+            var cached = configuration.DuplicateCharacters.GetValueOrDefault(identity);
+            var display = identified.Select(p => p.CharacterName).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n))
+                ?? cached?.DisplayName ?? identified[0].Label;
+            return new DuplicateCharacter(identity, display,
+                visibleCharacters.Contains(identity) || identified.Any(p => p.Online || p.Visible),
+                (cached?.Routes.Values.AsEnumerable() ?? []).Concat(identified.Select(p => p.Provider)).Distinct()
                     .OrderBy(p => configuration.Priority.IndexOf(p)).ToArray(), identified)
             {
-                Nearby = visibleCharacters.Contains(entry.Key),
+                Nearby = visibleCharacters.Contains(identity) || identified.Any(p => p.Visible),
             };
         }).OrderBy(c => c.DisplayName, StringComparer.OrdinalIgnoreCase).ToArray();
         charactersDirty = false;
@@ -184,6 +187,7 @@ public sealed partial class SyncCoordinator
             yield return "Combine provider pairs";
         }
         Pairs = pairs.ToArray();
+
         FinishConnections();
         yield return "Finish connection changes";
         AssociateCharacters();
@@ -196,6 +200,8 @@ public sealed partial class SyncCoordinator
         yield return "Confirm media changes";
         ObserveExternalChanges();
         yield return "Observe external permission changes";
+        FinishCycles(DateTime.UtcNow);
+        yield return "Advance confirmed native cycles";
         automaticPauses = duplicatePolicy.GetAutomaticPauses(Pairs, configuration, Providers, visibleCharacters);
         yield return "Select automatic pauses";
 
@@ -207,6 +213,7 @@ public sealed partial class SyncCoordinator
             if (configuration.OwnedPauses.TryGetValue(pair.Key, out var owned)
                 && (owned.RestoreRequested || configuration.AutomaticManagement && !wantsPause))
             {
+                if (cycles.ContainsKey(pair.Key) && !owned.RestoreRequested) continue;
                 try { StartRestore(pair, owned); }
                 catch (Exception exception) { RecordError(pair.Key, exception); }
                 yield return "Request pause restoration";
@@ -215,6 +222,7 @@ public sealed partial class SyncCoordinator
         foreach (var pair in Pairs)
         {
             if (connectionOperations.ContainsKey(pair.Provider)) continue;
+            if (cycles.ContainsKey(pair.Key)) continue;
             if (!configuration.IsManuallyPaused(pair) && !automaticPauses.Contains(pair.Key)) continue;
             try { StartPause(pair); }
             catch (Exception exception) { RecordError(pair.Key, exception); }
@@ -382,6 +390,7 @@ public sealed partial class SyncCoordinator
     {
         foreach (var pair in Pairs)
         {
+            ReconcileShellPauseReason(pair);
             ReconcileLateMediaChanges(pair);
             ReconcileLatePauses(pair);
             if (operations.ContainsKey(pair.Key) || mediaOperations.ContainsKey(pair.Key)
@@ -429,8 +438,7 @@ public sealed partial class SyncCoordinator
         // A failed pause must never prevent an independently requested restoration, or vice versa.
         if (retryDirections.TryGetValue(pair.Key, out var previous) && previous != paused) ClearRetryState(pair.Key);
         retryDirections[pair.Key] = paused;
-        return stopping || retryFailures.GetValueOrDefault(pair.Key) <= MaxAutomaticRetries
-            && (!retryAfter.TryGetValue(pair.Key, out var until) || DateTime.UtcNow >= until);
+        return stopping || !retryAfter.TryGetValue(pair.Key, out var until) || DateTime.UtcNow >= until;
     }
 
     private void StartPause(PairSnapshot pair)
@@ -442,6 +450,8 @@ public sealed partial class SyncCoordinator
         var created = false;
         if (configuration.OwnedPauses.TryGetValue(pair.Key, out var owned))
         {
+            if (!owned.LocalHold && (pair.PauseReason != owned.OriginalPauseReason
+                || pair.Permissions != owned.OriginalPermissions && pair.Permissions != owned.PausedPermissions)) return;
             if (owned.RestoreRequested || (owned.LocalHold ? pair.ManagerFullyHeld : pair.Permissions == owned.PausedPermissions)) return;
         }
         else
@@ -455,7 +465,7 @@ public sealed partial class SyncCoordinator
         if (!owned.LocalHold) owned.PauseChange = new()
         {
             CharacterIdentity = owned.CharacterIdentity, OriginalPermissions = owned.OriginalPermissions,
-            PausedPermissions = owned.PausedPermissions, PauseReason = owned.OriginalPauseReason,
+            PausedPermissions = owned.PausedPermissions, PauseReason = owned.OriginalPauseReason, NativeCycle = owned.NativeCycle,
         };
         // An earlier save may have failed after inserting the in-memory record. Every
         // native pause attempt must persist its restoration record successfully first.
@@ -474,7 +484,7 @@ public sealed partial class SyncCoordinator
     private void StartRestore(PairSnapshot pair, OwnedPause owned)
     {
         if (!CanStart(pair, false)) return;
-        if (owned.LocalHold != pair.Adapter.LocalHolds)
+        if (!owned.NativeCycle && owned.LocalHold != pair.Adapter.LocalHolds)
         {
             RecordError(pair.Key, new NotSupportedException("The pause integration changed since this record was saved. Restore the pause in its original sync plugin; the saved record has been retained."));
             return;
@@ -490,8 +500,9 @@ public sealed partial class SyncCoordinator
     {
         try
         {
-            if (pair.Adapter.LocalHolds) localHolds[pair.Key] = pair;
-            var task = pair.Adapter.SetPaused(pair, paused);
+            var nativeCycle = configuration.OwnedPauses.GetValueOrDefault(pair.Key)?.NativeCycle == true;
+            if (pair.Adapter.LocalHolds && !nativeCycle) localHolds[pair.Key] = pair;
+            var task = pair.Adapter.SetPaused(pair, paused, nativeCycle);
             operations[pair.Key] = new(task, paused, DateTime.UtcNow.AddSeconds(20));
         }
         catch (Exception exception)
@@ -636,7 +647,7 @@ public sealed partial class SyncCoordinator
                 ParseProvider(key)?.DisplayName() ?? "unknown sync");
             return;
         }
-        var failures = retryFailures.GetValueOrDefault(key) + 1;
+        var failures = Math.Min(retryFailures.GetValueOrDefault(key) + 1, MaxAutomaticRetries + 1);
         retryFailures[key] = failures;
         if (failures <= MaxAutomaticRetries)
         {
@@ -646,10 +657,9 @@ public sealed partial class SyncCoordinator
         }
         else
         {
-            retryAfter.Remove(key);
-            Plugin.Log.Warning(cause, "[Management] {Provider} pair state needs attention after {Maximum} automatic retries.",
-                ParseProvider(key)?.DisplayName() ?? "unknown sync", MaxAutomaticRetries);
-            Plugin.NotifyAttention();
+            retryAfter[key] = DateTime.UtcNow.AddMinutes(5);
+            Plugin.Log.Warning(cause, "[Management] {Provider} recovery will retry in five minutes.",
+                ParseProvider(key)?.DisplayName() ?? "unknown sync");
         }
     }
 
@@ -663,7 +673,7 @@ public sealed partial class SyncCoordinator
     }
 
     public bool IsRetrying(PairSnapshot pair) => retryFailures.TryGetValue(pair.Key, out var failures)
-        && failures <= MaxAutomaticRetries && !configuration.AutomaticExceptions.Contains(pair.Key)
+        && failures > 0 && !configuration.AutomaticExceptions.Contains(pair.Key)
         && !stalledOperations.Contains(pair.Key);
     public string? ErrorFor(PairSnapshot pair) => IsRetrying(pair) ? null : errors.GetValueOrDefault(pair.Key);
 
@@ -695,7 +705,7 @@ public sealed partial class SyncCoordinator
         }
     }
 
-    public bool IsPending(PairSnapshot pair) => operations.ContainsKey(pair.Key)
+    public bool IsPending(PairSnapshot pair) => cycles.ContainsKey(pair.Key) || operations.ContainsKey(pair.Key)
         || mediaOperations.ContainsKey(pair.Key) || queuedMedia.ContainsKey(pair.Key)
         || configuration.OwnedPauses.GetValueOrDefault(pair.Key)?.MediaChange != null;
     public bool IsOwned(PairSnapshot pair) => configuration.OwnedPauses.ContainsKey(pair.Key);
@@ -822,9 +832,15 @@ public sealed partial class SyncCoordinator
         RefreshSoon();
     }
 
+    internal static string AccountIdentity(PairSnapshot pair) => "account:" + pair.Key;
+
+    private IEnumerable<string> CharacterRouteKeys(DuplicateCharacter character) =>
+        (configuration.DuplicateCharacters.GetValueOrDefault(character.Identity)?.Routes.Keys.AsEnumerable() ?? [])
+            .Concat(character.Pairs.Select(p => p.Key)).Distinct(StringComparer.Ordinal);
+
     public bool IsCharacterPaused(DuplicateCharacter character) => configuration.CharacterPauses.Contains(character.Identity)
         || character.Pairs.Any(p => configuration.ManualPauses.Contains(p.Key))
-        || configuration.DuplicateCharacters[character.Identity].Routes.Keys.Any(configuration.ManualPauses.Contains);
+        || CharacterRouteKeys(character).Any(configuration.ManualPauses.Contains);
 
     public bool CanResumeCharacter(DuplicateCharacter character)
     {
@@ -832,7 +848,7 @@ public sealed partial class SyncCoordinator
         if (configuration.AutomaticManagement) return false;
         foreach (var pair in character.Pairs)
             if (IsRetained(pair.Key)) return true;
-        foreach (var key in configuration.DuplicateCharacters[character.Identity].Routes.Keys)
+        foreach (var key in CharacterRouteKeys(character))
             if (IsRetained(key)) return true;
         return false;
 
@@ -846,16 +862,17 @@ public sealed partial class SyncCoordinator
         Plugin.Log.Info("[Management] Character {Action} requested across {ProviderCount} identified sync plugins.",
             paused ? "pause" : "resume", character.Providers.Count);
         duplicatePolicy.ForgetSelection(character.Identity);
-        if (paused) configuration.CharacterPauses.Add(character.Identity);
+        var accountOnly = character.Pairs.Count > 0 && character.Pairs.All(p => p.CharacterIdentity == null);
+        if (paused && !accountOnly) configuration.CharacterPauses.Add(character.Identity);
         else configuration.CharacterPauses.Remove(character.Identity);
-        var keys = configuration.DuplicateCharacters[character.Identity].Routes.Keys
-            .Concat(character.Pairs.Select(p => p.Key))
+        var keys = CharacterRouteKeys(character)
             .Concat(configuration.OwnedPauses.Where(entry => entry.Value.CharacterIdentity == character.Identity).Select(entry => entry.Key))
             .Distinct().ToArray();
         foreach (var key in keys)
         {
             // Migrate old individual choices to the character choice and retry explicitly requested changes.
-            configuration.ManualPauses.Remove(key);
+            if (accountOnly && paused) configuration.ManualPauses.Add(key);
+            else configuration.ManualPauses.Remove(key);
             if (paused) configuration.AutomaticExceptions.Remove(key);
             else if (configuration.OwnedPauses.TryGetValue(key, out var owned)) owned.RestoreRequested = true;
             ClearRetryState(key);

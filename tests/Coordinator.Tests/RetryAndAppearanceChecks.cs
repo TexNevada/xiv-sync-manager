@@ -44,16 +44,21 @@ internal static class RetryAndAppearanceChecks
                 delays[pair.Key] = DateTime.UtcNow.AddSeconds(-1);
             }
         }
-        assert(!manager.IsRetrying(pair) && manager.ErrorFor(pair) != null && Plugin.AttentionNotifications == 1,
-            "After the initial attempt and three retries, report attention once");
+        assert(manager.IsRetrying(pair) && Plugin.AttentionNotifications == 0,
+            "After three quick retries, recovery continues without requiring manual attention");
         Invoke(manager, "StartPause", pair);
-        assert(native.Api.Requests == 4 && Plugin.AttentionNotifications == 1, "Exhausted requests do not retry indefinitely");
+        assert(native.Api.Requests == 4 && delays[pair.Key] > DateTime.UtcNow.AddMinutes(4),
+            "Continued automatic retries back off for five minutes instead of flooding the provider");
+        delays[pair.Key] = DateTime.UtcNow.AddSeconds(-1);
+        Invoke(manager, "StartPause", pair);
+        Invoke(manager, "FinishOperations");
+        assert(native.Api.Requests == 5 && manager.IsRetrying(pair), "Recovery retries after the long backoff without a user click");
         native.Api.Request = null;
         manager.UseAutomaticRules(pair);
         Invoke(manager, "StartPause", pair);
         SetPairs(manager, native.Snapshot());
         Invoke(manager, "FinishOperations");
-        assert(manager.ErrorFor(pair) == null && native.Api.Requests == 5, "Manual Retry starts a fresh attempt and success clears the error");
+        assert(manager.ErrorFor(pair) == null && native.Api.Requests == 6, "Manual Retry starts a fresh attempt and success clears the error");
 
         Environment.Reset();
         var direction = new Environment(SyncProvider.PlayerSync);
@@ -96,11 +101,11 @@ internal static class RetryAndAppearanceChecks
             Invoke(restoringManager, "StartRestore", restorePair, owned);
             Invoke(restoringManager, "FinishOperations");
             Invoke(restoringManager, "StartPause", restorePair);
-            restoreDelays[restorePair.Key] = DateTime.UtcNow.AddSeconds(-1);
+            if (attempt < 3) restoreDelays[restorePair.Key] = DateTime.UtcNow.AddSeconds(-1);
         }
         Invoke(restoringManager, "StartRestore", restorePair, owned);
-        assert(restoring.Api.Requests == 5 && restoringManager.ErrorFor(restorePair) != null,
-            "A saved pause choice cannot reset the retry limit for an interrupted restore");
+        assert(restoring.Api.Requests == 5 && restoringManager.IsRetrying(restorePair),
+            "A saved pause choice cannot bypass the backoff for an interrupted restore");
 
         Environment.Reset();
         var late = new Environment(SyncProvider.PlayerSync);

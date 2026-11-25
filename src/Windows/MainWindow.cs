@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(Plugin plugin) : base("XIV Sync Manager###XivSyncManagerMain")
     {
         this.plugin = plugin;
+        syncshells = new(() => Plugin.PluginInterface.InstalledPlugins, plugin.Coordinator.PrepareShellPauseReasons);
         TitleBarButtons =
         [
             new TitleBarButton
@@ -87,6 +88,7 @@ public sealed partial class MainWindow : Window
             ImGui.EndTabItem();
         }
         ImGui.EndTabBar();
+        DrawShellPauseConfirmation();
     }
 
     private void DrawSyncList()
@@ -100,7 +102,9 @@ public sealed partial class MainWindow : Window
         if (!ReferenceEquals(filteredSource, characters) || filteredSearch != query)
         {
             var filtered = characters.Where(c => query.Length == 0
-                || c.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
+                || c.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || c.Pairs.Any(p => p.Uid.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || p.Label.Contains(query, StringComparison.OrdinalIgnoreCase))).ToArray();
             nearbyCharacters = filtered.Where(c => c.Nearby).ToArray();
             onlineCharacters = filtered.Where(c => c.Online && !c.Nearby).ToArray();
             offlineCharacters = filtered.Where(c => !c.Online && !c.Nearby).ToArray();
@@ -108,7 +112,7 @@ public sealed partial class MainWindow : Window
             filteredSource = characters;
             filteredSearch = query;
         }
-        ImGui.TextDisabled($"{characters.Count} cached duplicate character(s)");
+        ImGui.TextDisabled($"{characters.Count} character(s) / account(s) · {coordinator.Pairs.Count} provider routes");
         if (coordinator.UnresolvedPauses > 0)
         {
             ImGui.SameLine();
@@ -125,7 +129,7 @@ public sealed partial class MainWindow : Window
         DrawList("Online", onlineCharacters, defaultOpen: false);
         DrawList("Offline", offlineCharacters, defaultOpen: false);
         if (characters.Count == 0)
-            ImGui.TextWrapped("Duplicates appear after the same character has been identified in view through two or more syncs. Once identified, they stay in this list when offline.");
+            ImGui.TextWrapped("No paired users are currently available. Connect a sync plugin to read its Nearby, Online and Offline users.");
         else if (filteredCount == 0)
             ImGui.TextDisabled("No characters match your search.");
     }
@@ -400,21 +404,23 @@ public sealed partial class MainWindow : Window
         if (!open) return;
         if (characters.Count == 0)
         {
-            ImGui.TextDisabled($"No {name.ToLowerInvariant()} duplicate characters.");
+            ImGui.TextDisabled($"No {name.ToLowerInvariant()} users.");
             return;
         }
         using var id = ImRaii.PushId(name);
-        if (!ImGui.BeginTable("Characters", 5, ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp)) return;
+        if (!ImGui.BeginTable("Characters", 5, ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp
+            | ImGuiTableFlags.ScrollX, new Vector2(0, 0), 1150 * ImGuiHelpers.GlobalScale)) return;
         ImGui.TableSetupColumn("Character", ImGuiTableColumnFlags.WidthStretch, 1.5f);
         var profileWidth = 3 * (ImGui.GetFrameHeight() + ImGui.CalcTextSize("W").X + ImGui.GetStyle().FramePadding.X)
             + 2 * ImGui.GetStyle().ItemSpacing.X;
         ImGui.TableSetupColumn("Profiles", ImGuiTableColumnFlags.WidthFixed, profileWidth);
-        ImGui.TableSetupColumn("Preferred sync", ImGuiTableColumnFlags.WidthStretch, 1);
+        ImGui.TableSetupColumn("Preferred sync / Media", ImGuiTableColumnFlags.WidthStretch, 1.5f);
         ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthStretch, 1);
         var controlWidth = MathF.Max(80 * ImGuiHelpers.GlobalScale,
             MathF.Max(ImGui.CalcTextSize("Pause All").X, ImGui.CalcTextSize("Resume").X)
             + 2 * ImGui.GetStyle().FramePadding.X)
-            + ImGui.CalcTextSize("Media…").X + 2 * ImGui.GetStyle().FramePadding.X + ImGui.GetStyle().ItemSpacing.X;
+            + ImGui.CalcTextSize("Media…").X + 2 * ImGui.GetStyle().FramePadding.X + ImGui.GetStyle().ItemSpacing.X
+            + 2 * (ImGui.GetFrameHeight() + ImGui.GetStyle().ItemSpacing.X);
         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthFixed, controlWidth);
         ImGui.TableHeadersRow();
         foreach (var character in characters) DrawCharacter(character);
@@ -438,8 +444,21 @@ public sealed partial class MainWindow : Window
         // height, but submit its controls only when it intersects the child window's clip.
         ImGui.TableNextRow(ImGuiTableRowFlags.None, contentHeight + 2 * ImGui.GetStyle().CellPadding.Y);
         ImGui.TableNextColumn();
-        if (!ImGui.IsRectVisible(new Vector2(1, contentHeight))) return;
         using var id = ImRaii.PushId(character.Identity);
+        var expanded = expandedCharacters.Contains(character.Identity);
+        if (!ImGui.IsRectVisible(new Vector2(1, contentHeight)))
+        {
+            // Expanded child rows still contribute height when their parent is clipped.
+            if (expanded) foreach (var pair in character.Pairs) DrawSyncListRoute(pair);
+            return;
+        }
+        if (ImGui.ArrowButton("routes", expanded ? ImGuiDir.Down : ImGuiDir.Right))
+        {
+            if (expanded) expandedCharacters.Remove(character.Identity);
+            else expandedCharacters.Add(character.Identity);
+        }
+        Tooltip("Show individual provider routes and native controls.");
+        ImGui.SameLine();
         ImGui.TextUnformatted(character.DisplayName);
         Tooltip($"Known on: {string.Join(", ", character.Providers.Select(p => p.DisplayName()))}");
         foreach (var pair in character.Pairs.Where(p => p.Audio.Recent))
@@ -472,7 +491,7 @@ public sealed partial class MainWindow : Window
         var errors = character.Pairs.Select(p => (Pair: p, Error: coordinator.ErrorFor(p)))
             .Where(entry => entry.Error != null).ToArray();
         var externalChanges = character.Pairs.Any(p => plugin.Configuration.AutomaticExceptions.Contains(p.Key));
-        ImGui.TextUnformatted(errors.Length > 0 || externalChanges ? "Needs attention" : StateFor(character, paused));
+        ImGui.TextUnformatted(errors.Length > 0 ? "Request blocked" : externalChanges ? "Native choice preserved" : StateFor(character, paused));
         if (errors.Length > 0)
             Tooltip(string.Join("\n", errors.Select(entry => $"{entry.Pair.Provider.DisplayName()}: {entry.Error}")));
         else if (externalChanges)
@@ -488,6 +507,7 @@ public sealed partial class MainWindow : Window
             Tooltip("Retry this character's saved choice and enable automatic rules again. Existing external pauses are preserved.");
         }
         ImGui.TableNextColumn();
+        if (character.Pairs.Count == 1) { DrawPairRecovery(character.Pairs[0]); ImGui.SameLine(); }
         if (ImGui.Button("Media…")) ImGui.OpenPopup("characterMedia");
         Tooltip("Pause or resume animations, sounds, and VFX for this character across identified syncs or for one plugin.");
         ImGui.SameLine();
@@ -497,6 +517,8 @@ public sealed partial class MainWindow : Window
             ? "Release this character's manual or retained manager pauses. If management is on, the preferred available sync stays active. Pauses made in the original sync plugins are preserved."
             : "Pause this character on every identified sync. This choice is saved even while offline.");
         DrawMediaPopup("characterMedia", character.DisplayName, character.Pairs, character.Providers);
+        if (expanded)
+            foreach (var pair in character.Pairs) DrawSyncListRoute(pair);
     }
 
     private void DrawProfiles(DuplicateCharacter character)
@@ -513,7 +535,7 @@ public sealed partial class MainWindow : Window
             // profile state for display only; do not assign its identity or enable character actions.
             var historicalPair = pair == null ? coordinator.Pairs.FirstOrDefault(p => p.Provider == provider
                 && p.CharacterIdentity == null && p.Profile.Availability == ProfileAvailability.Paused
-                && plugin.Configuration.DuplicateCharacters[character.Identity].Routes.ContainsKey(p.Key)) : null;
+                && plugin.Configuration.DuplicateCharacters.GetValueOrDefault(character.Identity)?.Routes.ContainsKey(p.Key) == true) : null;
             var status = pair?.Profile ?? new(ProfileAvailability.Unknown,
                 "This sync has no currently identified pair for this character. Reconnect it or wait until the character is identified again.");
             if (historicalPair != null)

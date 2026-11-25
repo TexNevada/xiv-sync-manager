@@ -67,6 +67,8 @@ namespace CoordinatorTests
             string[]? Roster(SyncProvider provider, string id = "gid") => Row(provider, id).Members;
             RefreshRosters(_ => true);
             check(Roster(SyncProvider.Lightless) is ["offline"], "The native roster includes offline members and falls back to the UID");
+            check(Row(SyncProvider.Lightless).GetType().GetProperty("NativeMembers", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance) != null,
+                "Shell rosters retain native member identities for controls instead of targeting display names");
             check(Roster(SyncProvider.Snowcloak) is ["snow-only"] && Roster(SyncProvider.PlayerSync) is ["player-only"],
                 "Same-named shells with the same GID across providers have separate rosters");
             check(Roster(SyncProvider.Snowcloak, "second") is [], "An empty roster is distinct from an unavailable roster");
@@ -129,10 +131,12 @@ namespace CoordinatorTests
                 dto.GroupUserPermissions = before;
                 Refresh();
             }
-            check(Row(SyncProvider.PlayerSync)[SyncshellControl.Pause] is { Value: true, Availability: SyncshellAvailability.Unsupported },
-                "PlayerSync pause is read-only because its native action mutates member pause reasons");
+            check(Row(SyncProvider.PlayerSync)[SyncshellControl.Pause] is { Value: true, Availability: SyncshellAvailability.Available },
+                "PlayerSync exposes native shell pause when its pause-reason contract is available");
             tab.Act(Row(SyncProvider.PlayerSync), SyncshellControl.Pause, now);
-            check(player.ShellRequests.Count == 0, "Unsupported PlayerSync pause never calls the shell or pair endpoint");
+            check(player.ShellRequests.Count == 1, "PlayerSync resumes through its native group endpoint");
+            p.GroupUserPermissions &= ~Permissions.Paused;
+            Refresh();
             check(Row(SyncProvider.Snowcloak)[SyncshellControl.Profile].Availability == SyncshellAvailability.Unsupported, "Snowcloak has no shell profile");
 
             tab.Act(Row(SyncProvider.Lightless), SyncshellControl.Profile, now);

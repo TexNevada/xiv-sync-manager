@@ -10,8 +10,10 @@ internal enum SyncshellControl { Pause, Sound, Vfx, Animations, Profile }
 internal enum SyncshellAvailability { Available, Unsupported, Unavailable }
 internal readonly record struct SyncshellKey(SyncProvider Provider, string Gid);
 internal readonly record struct SyncshellSetting(bool? Value, SyncshellAvailability Availability, string Reason = "");
+internal sealed record SyncshellMember(string Uid, string Label, object Pair);
 internal sealed record SyncshellRow(SyncshellKey Key, string Name, SyncshellConnection Connection, SyncshellSetting[] Settings, string[]? Members)
 {
+    internal SyncshellMember[]? NativeMembers { get; init; }
     internal SyncshellSetting this[SyncshellControl control] => Settings[(int)control];
 }
 internal sealed record SyncshellProviderView(bool CanList, string? Notice, SyncshellRow[] Rows);
@@ -24,8 +26,9 @@ internal sealed record SyncshellConnection(object Plugin, object? Session, strin
     internal bool Matches(SyncshellConnection other) => CanAct && other.CanAct && SameSnapshot(other);
 }
 
-// Only transient display snapshots and in-flight feedback; none of this participates in pair management.
-internal sealed class Syncshells(Func<IEnumerable<IExposedPlugin>> installedPlugins)
+// Transient display snapshots and in-flight feedback; PlayerSync reason changes use the coordinator's ownership gate.
+internal sealed class Syncshells(Func<IEnumerable<IExposedPlugin>> installedPlugins,
+    Action<IReadOnlyList<object>, string, Action>? prepareReasons = null)
 {
     internal static readonly SyncProvider[] ProviderOrder = [SyncProvider.Lightless, SyncProvider.Snowcloak, SyncProvider.PlayerSync];
     internal static readonly SyncshellControl[] Controls = Enum.GetValues<SyncshellControl>();
@@ -111,7 +114,7 @@ internal sealed class Syncshells(Func<IEnumerable<IExposedPlugin>> installedPlug
         try
         {
             errors.Remove(row.Key);
-            var (request, profileOpened) = SyncshellIntegration.Start(row, control, installedPlugins());
+            var (request, profileOpened) = SyncshellIntegration.Start(row, control, installedPlugins(), prepareReasons);
             // Observe faults even if the UI is closed or the manager unloads before the next refresh.
             _ = request.ContinueWith(static task => { _ = task.Exception; }, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
             operations.Add(row.Key, new(row, control, setting.Value is { } value ? !value : null, now, request, profileOpened));

@@ -216,7 +216,7 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
         var userPair = ReflectionAccess.Read(pair, "UserPair");
         var own = ReflectionAccess.Read(userPair, "OwnPermissions");
         var other = ReflectionAccess.Read(userPair, "OtherPermissions");
-        var permissions = canHold ? string.Empty : Fingerprint(own
+        var permissions = Fingerprint(own
             ?? throw new NotSupportedException("This pair does not expose editable permissions."));
         if (!canHold && !validatedPausePermissions.Contains(own!.GetType()))
         {
@@ -286,10 +286,10 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
         profiles.Open(pair.Pair);
     }
 
-    internal Task SetPaused(PairSnapshot pair, bool paused)
+    internal Task SetPaused(PairSnapshot pair, bool paused, bool nativePermissions = false)
     {
         EnsureCurrent(pair);
-        if (LocalHolds)
+        if (LocalHolds && !nativePermissions)
         {
             if (paused)
             {
@@ -404,16 +404,40 @@ internal sealed class ReflectionSyncAdapter(SyncProvider provider)
         ReflectionAccess.Invoke(pair.Pair, "UnholdApplication", HoldSource, false);
     }
 
+    internal PairSnapshot ReadCurrent(PairSnapshot pair)
+    {
+        EnsureCurrent(pair);
+        return ReadPair(pair.Pair);
+    }
+
+    internal OwnedPause PrepareNativeCycle(PairSnapshot pair)
+    {
+        EnsureCurrent(pair);
+        var permissions = GetOwnPermissions(pair);
+        if (Fingerprint(permissions) != pair.Media.Permissions || GetPauseReason(pair.Pair) != pair.PauseReason)
+            throw new InvalidOperationException("Pair permissions changed; refresh before cycling.");
+        _ = PermissionRequestMethod();
+        return new()
+        {
+            NativeCycle = true, CharacterIdentity = pair.CharacterIdentity ?? string.Empty,
+            OriginalPermissions = Fingerprint(permissions), PausedPermissions = Fingerprint(ChangePaused(permissions, true)),
+            OriginalPauseReason = pair.PauseReason,
+        };
+    }
+
+    internal bool CanReapply(PairSnapshot pair) => ReapplyMethod(pair) != null;
+
+    private static MethodInfo? ReapplyMethod(PairSnapshot pair) => new[] { "ReapplyCachedData", "ApplyLastReceivedData" }
+        .Select(name => pair.Pair.GetType().GetMethods(ReflectionAccess.Members).FirstOrDefault(m => m.Name == name
+            && m.GetParameters() is { Length: > 0 } parameters && parameters[0].ParameterType == typeof(bool)
+            && parameters.All(p => p.IsOptional))).FirstOrDefault(m => m != null);
+
     internal bool Reapply(PairSnapshot pair)
     {
         EnsureCurrent(pair);
         // PlayerSync's "Reload last data" uses ReapplyCachedData(true). Older sync
         // versions may instead expose ApplyLastReceivedData with optional arguments.
-        var methods = pair.Pair.GetType().GetMethods(ReflectionAccess.Members);
-        var method = new[] { "ReapplyCachedData", "ApplyLastReceivedData" }.Select(name =>
-            methods.FirstOrDefault(m => m.Name == name && m.GetParameters() is { Length: > 0 } parameters
-                && parameters[0].ParameterType == typeof(bool) && parameters.All(p => p.IsOptional)))
-            .FirstOrDefault(m => m != null);
+        var method = ReapplyMethod(pair);
         if (method == null) return false;
         var args = method.GetParameters().Select(p => p.DefaultValue).ToArray();
         args[0] = true;

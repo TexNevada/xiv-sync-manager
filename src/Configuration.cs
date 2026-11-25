@@ -109,7 +109,9 @@ public sealed class OwnedPause
     public string OriginalPermissions { get; set; } = string.Empty;
     public string PausedPermissions { get; set; } = string.Empty;
     public string OriginalPauseReason { get; set; } = string.Empty;
+    public string? PendingShellPauseReason { get; set; }
     public bool LocalHold { get; set; }
+    public bool NativeCycle { get; set; }
     public bool Confirmed { get; set; }
     public bool RestoreRequested { get; set; }
     public PendingMediaChange? MediaChange { get; set; }
@@ -119,6 +121,7 @@ public sealed class OwnedPause
 // Saved before a server pause, then retained separately if its result is uncertain.
 public sealed class LatePauseChange
 {
+    public bool NativeCycle { get; set; }
     internal LatePauseChange Copy() => (LatePauseChange)MemberwiseClone();
     public string CharacterIdentity { get; set; } = string.Empty;
     public string OriginalPermissions { get; set; } = string.Empty;

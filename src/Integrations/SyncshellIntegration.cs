@@ -8,12 +8,14 @@ using Dalamud.Plugin;
 
 namespace XivSyncManager;
 
-// Contracts traced from the native menus; see SYNCSHELLS.md. No character or pair operations.
+// Contracts traced from native menus; shell writes stay separate from member controls.
 internal sealed class SyncshellIntegration(SyncProvider provider, object plugin, IServiceProvider services, string prefix, object manager, object api)
 {
-    private const string PlayerPause = "PlayerSync's native shell pause changes per-player pause reasons. Use its own menu if you intend to do that.";
+
     private const string SnowProfile = "Snowcloak does not expose a syncshell profile viewer or editor.";
     private static readonly ConditionalWeakTable<Type, PermissionAccess[]> PermissionMembers = new();
+    private static readonly ConditionalWeakTable<Type, ReasonAccess> ReasonMembers = new();
+    private static readonly ConditionalWeakTable<Type, StickyAccess> StickyMembers = new();
     private readonly object controller = api;
 
     internal static SyncshellProviderView Read(SyncProvider provider, IReadOnlyList<IExposedPlugin> installed, Func<SyncshellKey, bool>? expanded)
@@ -45,7 +47,9 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
                     settings[(int)control] = control == SyncshellControl.Profile
                         ? profileSetting : native.PermissionSetting(control, permissions, flags, supportedRequest, connection);
                 }
-                result.Add(new(new(provider, gid), Name(dto, gid), connection, settings, rosters?.GetValueOrDefault(gid)));
+                var members = rosters?.GetValueOrDefault(gid);
+                result.Add(new(new(provider, gid), Name(dto, gid), connection, settings, members?.Select(m => m.Label).ToArray())
+                    { NativeMembers = members });
             }
             if (!connection.SameSnapshot(native.Connection()))
                 return new(false, "Sync connection is changing; waiting for its joined-shell list.", []);
@@ -59,7 +63,8 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
         }
     }
 
-    internal static (Task Request, Func<bool>? ProfileOpened) Start(SyncshellRow row, SyncshellControl control, IEnumerable<IExposedPlugin> installed)
+    internal static (Task Request, Func<bool>? ProfileOpened) Start(SyncshellRow row, SyncshellControl control, IEnumerable<IExposedPlugin> installed,
+        Action<IReadOnlyList<object>, string, Action>? prepareReasons = null)
     {
         var native = Find(row.Key.Provider, installed);
         var connection = native?.Connection();
@@ -68,12 +73,9 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
         var dto = native.FindGroup(row.Key.Gid) ?? throw new InvalidOperationException("This shell is no longer joined.");
         if (control == SyncshellControl.Profile)
             return native.OpenProfile(dto, row.Key.Gid, connection);
-        if (control == SyncshellControl.Pause && row.Key.Provider == SyncProvider.PlayerSync)
-            throw new NotSupportedException(PlayerPause);
-
         return (native.NeedsFreshGroupRead
-            ? native.SendWithFreshGroup(row, control, connection)
-            : native.SendPermission(row, control, connection, dto), null);
+            ? native.SendWithFreshGroup(row, control, connection, prepareReasons)
+            : native.SendPermission(row, control, connection, dto, prepareReasons), null);
     }
 
     private bool NeedsFreshGroupRead => provider == SyncProvider.PlayerSync
@@ -85,7 +87,8 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
 
     // These clients can retain the old group list after the new transport is connected.
     // Read through the installed provider only on click; never store this snapshot or replay a write.
-    private async Task SendWithFreshGroup(SyncshellRow row, SyncshellControl control, SyncshellConnection connection)
+    private async Task SendWithFreshGroup(SyncshellRow row, SyncshellControl control, SyncshellConnection connection,
+        Action<IReadOnlyList<object>, string, Action>? prepareReasons)
     {
         var endpoint = FreshGroupEndpoint() ?? throw new NotSupportedException("Fresh native shell permissions are unavailable in this version.");
         var read = (Task)endpoint.Invoke(controller, null)!;
@@ -96,10 +99,11 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
         var dto = ReflectionAccess.Values(ReflectionAccess.Read(read, "Result")!)
             .SingleOrDefault(group => GroupId(group) == row.Key.Gid)
             ?? throw new InvalidOperationException("This shell is no longer joined.");
-        await SendPermission(row, control, connection, dto).ConfigureAwait(false);
+        await SendPermission(row, control, connection, dto, prepareReasons).ConfigureAwait(false);
     }
 
-    private Task SendPermission(SyncshellRow row, SyncshellControl control, SyncshellConnection connection, object dto)
+    private Task SendPermission(SyncshellRow row, SyncshellControl control, SyncshellConnection connection, object dto,
+        Action<IReadOnlyList<object>, string, Action>? prepareReasons)
     {
         var permissions = ReflectionAccess.Read(dto, "GroupUserPermissions");
         var flag = Permissions(permissions)[(int)control];
@@ -120,6 +124,8 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
         var payload = request.Dto.Invoke([group, request.User.Invoke(userArgs), change[0]]);
         if (!connection.Matches(Connection()))
             throw new InvalidOperationException("The sync connection changed. The request was not sent.");
+        if (provider == SyncProvider.PlayerSync && control == SyncshellControl.Pause && !current)
+            WritePlayerPauseReasons(row.Key.Gid, connection, prepareReasons);
         return request.Method.Invoke(controller, [payload]) as Task
             ?? throw new InvalidOperationException("The provider did not return a shell request to confirm.");
     }
@@ -172,12 +178,12 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
     private object? CollectionView() => provider == SyncProvider.Lightless
         ? ReflectionAccess.Method(manager, "GetCollectionView", 0)?.Invoke(manager, null) : manager;
 
-    private static Dictionary<string, string[]>? ReadRosters(object? view, HashSet<string> expandedGroups)
+    private static Dictionary<string, SyncshellMember[]>? ReadRosters(object? view, HashSet<string> expandedGroups)
     {
         try
         {
             if (ReflectionAccess.Read(view, "GroupPairs") is not System.Collections.IEnumerable groups) return null;
-            var result = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            var result = new Dictionary<string, SyncshellMember[]>(StringComparer.Ordinal);
             foreach (var entry in groups)
             {
                 if (ReflectionAccess.Read(entry, "Key") is not { } group || GroupId(group) is not { } gid
@@ -190,8 +196,8 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
                         var uid = ReflectionAccess.Read(user, "UID") as string;
                         if (string.IsNullOrWhiteSpace(uid)) throw new NotSupportedException("The native member UID is not exposed.");
                         var alias = ReflectionAccess.Read(user, "AliasOrUID") as string;
-                        return string.IsNullOrWhiteSpace(alias) ? uid : alias;
-                    }).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
+                        return new SyncshellMember(uid, string.IsNullOrWhiteSpace(alias) ? uid : alias, pair);
+                    }).OrderBy(member => member.Label, StringComparer.OrdinalIgnoreCase).ToArray();
                 }
                 catch (Exception) { /* A changed member contract must not hide the joined shell or affect its actions. */ }
             }
@@ -238,11 +244,62 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
         var flag = flags[(int)control];
         var native = flag.Read?.Invoke(null, [permissions]) as bool?;
         var value = control == SyncshellControl.Pause ? native : !native;
-        if (control == SyncshellControl.Pause && provider == SyncProvider.PlayerSync) return Unsupported(PlayerPause, value);
+        if (control == SyncshellControl.Pause && provider == SyncProvider.PlayerSync && PlayerReasonEndpoint() == null)
+            return Unsupported("This version does not expose the native shell pause-reason contract.", value);
         if (value == null || flag.Write == null || !canWrite)
             return Unsupported("This plugin version does not expose this native shell control and readback.", value);
         return connection.CanAct ? new(value, SyncshellAvailability.Available)
             : Unavailable(connection.Connected ? "Waiting for the native sync connection to be ready." : "Connect this sync plugin to change its shell settings.", value);
+    }
+
+    private (object Manager, MethodInfo Setter, object Reason, string Text)? PlayerReasonEndpoint()
+    {
+        var server = ReflectionAccess.Read(controller, "_serverManager");
+        if (server == null) return null;
+        var access = ReasonMembers.GetValue(server.GetType(), static type =>
+        {
+            var setter = type.GetMethods(ReflectionAccess.Members).FirstOrDefault(m => m.Name == "SetPauseReasonForUid"
+                && m.GetParameters() is [var uids, var reason, var save] && uids.ParameterType == typeof(List<string>)
+                && reason.ParameterType.IsEnum && save.ParameterType == typeof(bool));
+            if (setter == null) return new(null, null, null);
+            var reasonType = setter.GetParameters()[1].ParameterType;
+            if (!Enum.GetNames(reasonType).Contains("PauseSyncshell")) return new(null, null, null);
+            var reasonValue = Enum.Parse(reasonType, "PauseSyncshell");
+            var text = reasonType.Assembly.GetTypes().SelectMany(t => t.GetMethods(BindingFlags.Static | BindingFlags.Public))
+                .FirstOrDefault(m => m.Name == "FromPauseReason" && m.ReturnType == typeof(string)
+                    && m.GetParameters() is [var arg] && arg.ParameterType == reasonType)?.Invoke(null, [reasonValue]) as string;
+            return new(setter, reasonValue, text);
+        });
+        return access is { Setter: { } method, Reason: { } value, Text: { } label } ? (server, method, value, label) : null;
+    }
+
+    private void WritePlayerPauseReasons(string gid, SyncshellConnection connection, Action<IReadOnlyList<object>, string, Action>? prepareReasons)
+    {
+        var endpoint = PlayerReasonEndpoint() ?? throw new NotSupportedException("Native shell pause reasons are unavailable.");
+        var groups = ReflectionAccess.Read(manager, "GroupPairs")
+            ?? throw new NotSupportedException("Native shell membership is unavailable; pause was not sent.");
+        var entry = ((System.Collections.IEnumerable)groups).Cast<object>().FirstOrDefault(e => GroupId(ReflectionAccess.Read(e, "Key")!) == gid)
+            ?? throw new InvalidOperationException("Native shell roster is unavailable; refresh before pausing.");
+        var pairs = ReflectionAccess.Values(ReflectionAccess.Read(entry, "Value")!).Where(pair =>
+        {
+            var permissions = ReflectionAccess.Read(ReflectionAccess.Read(pair, "UserPair"), "OwnPermissions")
+                ?? throw new NotSupportedException("Native member permissions are unavailable.");
+            var sticky = StickyMembers.GetValue(permissions.GetType(), static type => new(type.Assembly.GetTypes()
+                .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                .FirstOrDefault(m => m.Name == "IsSticky" && m.ReturnType == typeof(bool)
+                    && m.GetParameters() is [var arg] && arg.ParameterType == type))).Reader
+                ?? throw new NotSupportedException("Native Sticky permission contract is unavailable.");
+            return sticky.Invoke(null, [permissions]) is false;
+        }).ToArray();
+        var uids = pairs.Select(pair => ReflectionAccess.Read(ReflectionAccess.Read(pair, "UserData"), "UID") as string
+            ?? throw new NotSupportedException("Native member UID is unavailable.")).Distinct(StringComparer.Ordinal).ToList();
+        void Write()
+        {
+            if (!connection.Matches(Connection())) throw new InvalidOperationException("The connection changed; pause was not sent.");
+            endpoint.Setter.Invoke(endpoint.Manager, [uids, endpoint.Reason, true]);
+        }
+        if (prepareReasons == null) Write();
+        else prepareReasons(pairs, endpoint.Text, Write);
     }
 
     private static readonly PermissionAccess[] NoPermissions = new PermissionAccess[Syncshells.Controls.Length];
@@ -345,6 +402,8 @@ internal sealed class SyncshellIntegration(SyncProvider provider, object plugin,
     private static SyncshellSetting Unsupported(string reason, bool? value = null) => new(value, SyncshellAvailability.Unsupported, reason);
     private static SyncshellSetting Unavailable(string reason, bool? value = null) => new(value, SyncshellAvailability.Unavailable, reason);
     private readonly record struct PermissionAccess(MethodInfo? Read, MethodInfo? Write);
+    private sealed record ReasonAccess(MethodInfo? Setter, object? Reason, string? Text);
+    private sealed record StickyAccess(MethodInfo? Reader);
     private sealed record PermissionEndpoint(MethodInfo Method, ConstructorInfo Dto, ConstructorInfo User);
     private sealed record ProfileEndpoint(object Mediator, MethodInfo Publish, Type Message, object WindowSystem);
 }
