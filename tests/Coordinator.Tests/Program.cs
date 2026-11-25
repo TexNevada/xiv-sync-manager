@@ -19,6 +19,7 @@ void SetPairs(SyncCoordinator coordinator, params PairSnapshot[] pairs) =>
     typeof(SyncCoordinator).GetProperty(nameof(SyncCoordinator.Pairs))!.SetValue(coordinator, pairs);
 
 // Exercise real reflection discovery and native API dispatch, including repeated storage errors.
+SyncshellChecks.Run(Assert);
 TestEnvironment.Reset();
 var native = new TestEnvironment(SyncProvider.PlayerSync);
 var config = new Configuration();
@@ -71,6 +72,22 @@ snowConfig.OwnedPauses[backupPair.Key].OriginalPermissions = "0";
 var visible = new HashSet<string> { "Example@1" };
 var first = snowPolicy.GetAutomaticPauses([snowPair, backupPair], snowConfig, [snow.Adapter.Status, backup.Adapter.Status], visible);
 Assert(first.Contains(backupPair.Key), "Initially the active higher-priority Snowcloak keeps its backup paused");
+var shell = new ShellGroupInfo(new("shell")) { GroupUserPermissions = Permissions.Paused };
+snow.Groups.Add(shell.GID, shell);
+var shellTab = new Syncshells(() => Plugin.PluginInterface.InstalledPlugins);
+var backupRecord = snowConfig.OwnedPauses[backupPair.Key];
+shellTab.Refresh(TimeSpan.Zero);
+var shellRow = shellTab.VisibleRows.Single();
+shellTab.Act(shellRow, SyncshellControl.Pause, TimeSpan.Zero);
+shell.GroupUserPermissions = snow.Api.ShellRequests.Single().GroupPairPermissions;
+shellTab.Refresh(TimeSpan.FromSeconds(1));
+var afterShellResume = snowPolicy.GetAutomaticPauses([snow.Snapshot(), backup.Snapshot()], snowConfig,
+    [snow.Adapter.Status, backup.Adapter.Status], visible);
+Assert(shellTab.Pending(shellRow.Key) == null && !shell.GroupUserPermissions.IsPaused()
+    && afterShellResume.Contains(backupPair.Key) && backup.Pair.UserPair.OwnPermissions.IsPaused()
+    && ReferenceEquals(backupRecord, snowConfig.OwnedPauses[backupPair.Key]) && backupRecord.OriginalPermissions == "0"
+    && !backupRecord.RestoreRequested && snow.Api.Requests == 0 && backup.Api.Requests == 0,
+    "Native shell resume confirms without releasing the lower-priority owned pair pause or changing its restoration record");
 var nativeSnow = (Snowcloak.PlayerData.Pairs.Pair)snow.Pair;
 nativeSnow.HoldDownloads(ReflectionSyncAdapter.HoldSource, 1);
 nativeSnow.HoldApplication(ReflectionSyncAdapter.HoldSource, 1);

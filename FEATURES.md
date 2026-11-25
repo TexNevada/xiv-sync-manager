@@ -37,7 +37,8 @@
 - Treats PlayerSync's Moodles and Loci as alternatives and explains the conflict when both report ready.
 - Offers verified project links and custom-repository URL copying for every listed integration, including ready plugins. Labels plugins available through Dalamud's official repository and keeps separate links/searches for Moodles and Loci. See [INTEGRATION-PLUGINS.md](INTEGRATION-PLUGINS.md).
 - Provides Find buttons that search Dalamud's plugin installer and updates plugin checks automatically.
-- Adds **Sync List** and **Statistics** tabs below the theme selector.
+- Adds **Sync List**, **Syncshells**, and **Statistics** tabs below the theme selector.
+- **Syncshells:** one joined-shell list with provider filters and native pause, media, and profile controls where supported. See [provider support and limitations](SYNCSHELLS.md).
 - Keeps search and Nearby / Online / Offline duplicate lists in **Sync List**.
 - Shows visible paired players' estimated VRAM for Lightless Sync, Snowcloak, and PlayerSync in **Statistics**, including all visible pairs.
 - Uses Lightless's optimized estimates where available, Snowcloak's applied or reported estimates, and PlayerSync's applied estimates.

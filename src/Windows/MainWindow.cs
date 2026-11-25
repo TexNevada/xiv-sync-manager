@@ -76,6 +76,11 @@ public sealed partial class MainWindow : Window
             DrawSyncList();
             ImGui.EndTabItem();
         }
+        if (ImGui.BeginTabItem("Syncshells"))
+        {
+            DrawSyncshells();
+            ImGui.EndTabItem();
+        }
         if (ImGui.BeginTabItem("Statistics"))
         {
             DrawStatistics();

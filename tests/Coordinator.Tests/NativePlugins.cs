@@ -67,10 +67,26 @@ namespace CoordinatorTests
     public class NativeApi(List<NativePair> pairs)
     {
         public ServerManager _serverManager = new();
+        public object _connectionContext = new();
+        public object _connectionDto = new();
+        public object ConnectionSession { get; set; } = new();
+        public sealed class Hub { public string ConnectionId { get; set; } = "initial"; }
+        public Hub _snowHub = new();
+        public Hub _mareHub = new();
+        public bool ChatPairStateReady { get; set; } = true;
+        public Func<Task<List<ShellGroupInfo>>>? OnGroupsGetAll { get; set; }
+        public Task<List<ShellGroupInfo>> GroupsGetAll() => OnGroupsGetAll?.Invoke() ?? Task.FromResult<List<ShellGroupInfo>>([]);
         public string UID => "local";
         public bool IsConnected { get; set; } = true;
         public bool UserRequestedFullPause { get; set; }
         public int Requests { get; private set; }
+        public List<ShellRequest> ShellRequests { get; } = [];
+        public Func<ShellRequest, Task>? OnShellRequest { get; set; }
+        public Task GroupChangeIndividualPermissionState(ShellRequest request)
+        {
+            ShellRequests.Add(request);
+            return OnShellRequest?.Invoke(request) ?? Task.CompletedTask;
+        }
         public Action<PermissionRequest>? BeforeRequest { get; set; }
         public Func<PermissionRequest, Task>? Request { get; set; }
         public Task UserSetPairPermissions(PermissionRequest request)
@@ -101,6 +117,7 @@ namespace CoordinatorTests
         internal NativePair Pair { get; }
         internal NativeApi Api { get; }
         internal ReflectionSyncAdapter Adapter { get; }
+        internal Dictionary<string, ShellGroupInfo> Groups { get; }
         internal Environment(SyncProvider provider)
         {
             var list = new List<NativePair>();
@@ -110,14 +127,18 @@ namespace CoordinatorTests
             {
                 Pair = new Snowcloak.PlayerData.Pairs.Pair("remote");
                 Api = new Snowcloak.WebAPI.ApiController(list);
-                manager = new Snowcloak.PlayerData.Pairs.PairManager(list);
+                var pairManager = new Snowcloak.PlayerData.Pairs.PairManager(list);
+                manager = pairManager;
+                Groups = pairManager.Groups;
                 name = "Snowcloak";
             }
             else
             {
                 Pair = new PlayerSync.PlayerData.Pairs.Pair("remote");
                 Api = new PlayerSync.WebAPI.ApiController(list);
-                manager = new PlayerSync.PlayerData.Pairs.PairManager(list);
+                var pairManager = new PlayerSync.PlayerData.Pairs.PairManager(list);
+                manager = pairManager;
+                Groups = pairManager.Groups;
                 name = "PlayerSync";
             }
             list.Add(Pair);
@@ -145,6 +166,7 @@ namespace PlayerSync.PlayerData.Pairs
     public sealed class PairManager(List<CoordinatorTests.NativePair> pairs)
     {
         public object[] GetPairsSnapshot() => pairs.Cast<object>().ToArray();
+        public Dictionary<string, ShellGroupInfo> Groups { get; } = new(StringComparer.Ordinal);
     }
 }
 namespace PlayerSync.WebAPI
@@ -172,6 +194,7 @@ namespace Snowcloak.PlayerData.Pairs
     public sealed class PairManager(List<CoordinatorTests.NativePair> pairs)
     {
         public object[] GetPairsSnapshot() => pairs.Cast<object>().ToArray();
+        public Dictionary<string, ShellGroupInfo> Groups { get; } = new(StringComparer.Ordinal);
     }
 }
 namespace Snowcloak.WebAPI

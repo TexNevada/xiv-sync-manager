@@ -19,5 +19,7 @@
     <Compile Include="../../src/Integrations/ProfileIntegration.cs" Link="Integrations/ProfileIntegration.cs" />
     <Compile Include="../../src/Integrations/VramDiagnostics.cs" Link="Integrations/VramDiagnostics.cs" />
     <Compile Include="../../src/Integrations/AudioDiagnostics.cs" Link="Integrations/AudioDiagnostics.cs" />
+    <Compile Include="../../src/Integrations/SyncshellIntegration.cs" Link="Integrations/SyncshellIntegration.cs" />
+    <Compile Include="../../src/Syncshells.cs" Link="Syncshells.cs" />
   </ItemGroup>
 </Project>
