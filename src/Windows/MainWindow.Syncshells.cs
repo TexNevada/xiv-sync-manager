@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility.Raii;
 
 namespace XivSyncManager.Windows;
@@ -67,25 +69,28 @@ public sealed partial class MainWindow
         }
 
         var style = ImGui.GetStyle();
-        var pauseWidth = Math.Max(ShellButtonWidth("Unsupported"), ShellButtonWidth("Unavailable"));
+        var pauseWidth = Math.Max(ImGui.GetFrameHeight(), ShellButtonWidth("Unavailable"));
         var profileWidth = Math.Max(pauseWidth, ShellButtonWidth("Opening…"));
+        var serviceWidth = ImGui.GetFrameHeight() + style.ItemSpacing.X
+            + Syncshells.ProviderOrder.Max(provider => ImGui.CalcTextSize(ShellServiceName(provider)).X);
         var mediaWidth = ShellMediaWidth("Sound") + ShellMediaWidth("VFX") + ShellMediaWidth("Animations")
             + 2 * style.ItemSpacing.X;
-        var minimumWidth = ImGui.GetFrameHeight() + ImGui.CalcTextSize("Lightless Sync  Shell name").X
-            + 2 * style.ItemSpacing.X + pauseWidth + mediaWidth + profileWidth + 8 * style.CellPadding.X;
+        var minimumWidth = serviceWidth + ImGui.CalcTextSize("Syncshells").X
+            + pauseWidth + mediaWidth + profileWidth + 10 * style.CellPadding.X;
         var horizontalScroll = minimumWidth > ImGui.GetContentRegionAvail().X - style.ScrollbarSize;
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY;
         if (horizontalScroll) flags |= ImGuiTableFlags.ScrollX;
-        if (!ImGui.BeginTable("JoinedSyncshells", 4, flags, new Vector2(0, -1), horizontalScroll ? minimumWidth : 0)) return;
+        if (!ImGui.BeginTable("JoinedSyncshells", 5, flags, new Vector2(0, -1), horizontalScroll ? minimumWidth : 0)) return;
         try
         {
             ImGui.TableSetupScrollFreeze(0, 1);
-            ImGui.TableSetupColumn("Joined shell", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("Service", ImGuiTableColumnFlags.WidthFixed, serviceWidth);
+            ImGui.TableSetupColumn("Syncshells", ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn("Pause state", ImGuiTableColumnFlags.WidthFixed, pauseWidth);
             ImGui.TableSetupColumn("Media permissions", ImGuiTableColumnFlags.WidthFixed, mediaWidth);
             ImGui.TableSetupColumn("Profile", ImGuiTableColumnFlags.WidthFixed, profileWidth);
             ImGui.TableHeadersRow();
-            foreach (var row in rows) DrawShellRow(row, now);
+            foreach (var row in rows) DrawShellRow(row, now, profileWidth);
         }
         finally { ImGui.EndTable(); }
     }
@@ -96,7 +101,7 @@ public sealed partial class MainWindow
         nextShellRefresh = now + TimeSpan.FromSeconds(1);
     }
 
-    private void DrawShellRow(SyncshellRow row, TimeSpan now)
+    private void DrawShellRow(SyncshellRow row, TimeSpan now, float profileWidth)
     {
         using var providerId = ImRaii.PushId(row.Key.Provider.ToString());
         using var shellId = ImRaii.PushId(row.Key.Gid);
@@ -114,16 +119,17 @@ public sealed partial class MainWindow
         Tooltip(expanded ? "Hide shell members" : "Show shell members");
         ImGui.SameLine();
         ImGui.AlignTextToFramePadding();
-        ImGui.TextDisabled(provider);
+        ImGui.TextDisabled(ShellServiceName(row.Key.Provider));
         Tooltip(shellTooltip);
-        ImGui.SameLine();
+        ImGui.TableNextColumn();
+        ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted(ShellSingleLine(row.Name));
         Tooltip(shellTooltip);
 
         var pending = syncshells.Pending(row.Key);
 
         ImGui.TableNextColumn();
-        DrawShellControl(row, SyncshellControl.Pause, "=", pending, now);
+        DrawShellControl(row, SyncshellControl.Pause, string.Empty, pending, now);
 
         ImGui.TableNextColumn();
         DrawMedia(SyncshellControl.Sound);
@@ -132,7 +138,8 @@ public sealed partial class MainWindow
         ImGui.SameLine();
         DrawMedia(SyncshellControl.Animations);
         ImGui.TableNextColumn();
-        DrawShellControl(row, SyncshellControl.Profile, "Open", pending, now);
+        DrawShellControl(row, SyncshellControl.Profile, "Open", pending, now,
+            new Vector2(profileWidth, 0));
 
         if (expanded) DrawShellMembers(row);
 
@@ -156,9 +163,8 @@ public sealed partial class MainWindow
         static void DrawMember(string member, bool notice)
         {
             ImGui.TableNextRow();
-            ImGui.TableNextColumn();
-            var indent = ImGui.GetFrameHeight() + ImGui.GetStyle().ItemSpacing.X;
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + indent);
+            ImGui.TableSetColumnIndex(1);
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + ImGui.GetStyle().ItemSpacing.X);
             if (notice) ImGui.TextDisabled(member);
             else ImGui.TextUnformatted(ShellSingleLine(member));
             Tooltip(member);
@@ -177,8 +183,7 @@ public sealed partial class MainWindow
         var busy = pending == control;
         if (busy) label = media ? label + "…" : control == SyncshellControl.Profile ? "Opening…" : "…";
         else if (unavailable && !media)
-            label = setting.Availability == SyncshellAvailability.Unsupported ? "Unsupported" : "Unavailable";
-        else if (pause) size = new Vector2(ImGui.GetFrameHeight(), 0);
+            label = setting.Availability == SyncshellAvailability.Unsupported ? "N/A" : "Unavailable";
 
         using (ImRaii.Disabled(pending != null || anotherProfileOpening || unavailable))
         {
@@ -190,8 +195,10 @@ public sealed partial class MainWindow
                     .Push(ImGuiCol.ButtonHovered, color + new Vector4(0.08f, 0.08f, 0.08f, 0))
                     .Push(ImGuiCol.ButtonActive, color + new Vector4(0.04f, 0.04f, 0.04f, 0));
             }
-            var clicked = pause && !busy && !unavailable && setting.Value == true
-                ? ImGui.ArrowButton("###action", ImGuiDir.Right) : ImGui.Button($"{label}###action", size);
+            var clicked = pause && !busy && !unavailable
+                ? ImGuiComponents.IconButton("action", setting.Value == true ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause,
+                    new Vector2(ImGui.GetFrameHeight(), ImGui.GetFrameHeight()))
+                : ImGui.Button($"{label}###action", size);
             if (clicked) syncshells.Act(row, control, now);
         }
         var tip = busy ? syncshells.PendingAfterFailure(row.Key) ? "Request still running after failure; wait before trying again."
@@ -205,6 +212,7 @@ public sealed partial class MainWindow
         Tooltip(pause ? $"{(setting.Value switch { true => "Paused", false => "Not paused", null => "Pause state unknown" })}\n{tip}" : tip);
     }
 
+    private static string ShellServiceName(SyncProvider provider) => provider == SyncProvider.Lightless ? "Lightless" : provider.DisplayName();
     private static string ShellSingleLine(string text) => text.Replace('\r', ' ').Replace('\n', ' ');
     private static float ShellButtonWidth(string label) => ImGui.CalcTextSize(label).X + 2 * ImGui.GetStyle().FramePadding.X;
     private static float ShellMediaWidth(string label) => Math.Max(ShellButtonWidth($"{label}: Off…"), ShellButtonWidth($"{label}: On…"));
