@@ -47,7 +47,7 @@ Use only one of these repository URLs at a time: both channels install the same 
 
 ## Using the manager
 
-Open `/syncmanager`. Priority and theme controls sit above the **Sync List**, **Syncshells**, and **Statistics** tabs. The gear beside the title-bar controls opens settings. `/syncmanager config` and Dalamud's configuration button also open settings.
+Open `/syncmanager` or its optional shorthand `/xsm`. Priority and theme controls sit above the **Sync List**, **Syncshells**, and **Statistics** tabs. The gear beside the title-bar controls opens settings. `/syncmanager config`, `/xsm config`, and Dalamud's configuration button also open settings.
 
 - **Syncshells:** lists your joined shells from the loaded plugins, even when nobody is nearby. The three provider buttons only filter this tab. Pause/Resume works through Lightless Sync and Snowcloak; PlayerSync's pause is read-only here. Sound, VFX, and Animations use each provider's own shell settings. Lightless Sync and PlayerSync can open their native shell profile viewer; Snowcloak has no equivalent. No shell settings or filters are saved by the manager, and shell controls don't change its character priority or restoration records. See the [native compatibility matrix and in-game checklist](SYNCSHELLS.md).
 - **Duplicates only:** the Sync List shows remembered characters identified through at least two different sync services. There is no pair list.

@@ -36,6 +36,7 @@ public sealed class Plugin : IAsyncDalamudPlugin
     }
 
     private const string CommandName = "/syncmanager";
+    private const string CommandAlias = "/xsm";
     private readonly WindowSystem windows = new("XIV Sync Manager");
     private readonly MainWindow mainWindow;
     private readonly SettingsWindow settingsWindow;
@@ -79,6 +80,10 @@ public sealed class Plugin : IAsyncDalamudPlugin
         {
             HelpMessage = "Open XIV Sync Manager to manage duplicate characters, service priority, and themes.",
         });
+        CommandManager.AddHandler(CommandAlias, new CommandInfo(OnCommand)
+        {
+            HelpMessage = "Alias for /syncmanager. Use /xsm config to open settings.",
+        });
         Log.Info("[Lifecycle] Loaded version {Version}; automatic management {Management}; {IndexedCharacters} indexed duplicates.",
             typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "unknown", Configuration.AutomaticManagement,
             Configuration.DuplicateCharacters.Count);
@@ -96,6 +101,7 @@ public sealed class Plugin : IAsyncDalamudPlugin
             PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
             PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettingsUi;
             CommandManager.RemoveHandler(CommandName);
+            CommandManager.RemoveHandler(CommandAlias);
             windows.RemoveAllWindows();
             settingsWindow.Dispose();
         }).ConfigureAwait(false);

@@ -95,7 +95,7 @@
 - Groups existing backup pauses by character to avoid repeated full-list selection scans.
 - Reuses the grouped character view between frames and skips controls in rows outside the visible window.
 - Uses standard Dalamud logging for lifecycle, connection changes, actions, and errors, with rate-limited slow-step diagnostics.
-- Opens the main window with `/syncmanager` and settings with `/syncmanager config`.
+- Opens the main window with `/syncmanager` or `/xsm` and settings with `/syncmanager config` or `/xsm config`.
 - Provides a custom Dalamud repository manifest and release ZIP packaging for publishing.
 - Opens master installer-feed updates as PRs for human review and merging; dev feed updates remain automatic.
 - Labels the plugin as an alpha test release.
